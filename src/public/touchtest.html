@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Mobile Pane touch test</title>
+<style>
+  /* Opened on the device for the latency benchmark: every touch flips the whole screen
+     black ↔ white at once, no transition, so the first changed frame marks the reaction. */
+  html, body { margin: 0; height: 100%; background: #000; touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow: hidden; }
+  body.on { background: #fff; }
+</style>
+</head>
+<body>
+<script>
+  const flip = (e) => { document.body.classList.toggle("on"); e.preventDefault(); };
+  addEventListener("touchstart", flip, { passive: false });
+  addEventListener("mousedown", flip);
+</script>
+</body>
+</html>
