@@ -298,6 +298,12 @@ Celah yang ditutup (semua diuji di Chrome headless dengan emulator/simulator sun
 - Agent CLI `install`: APK uji (aapt2 + apksigner) dan app SwiftUI uji (swiftc + codesign ad-hoc) terpasang;
   `launch` + `ui` membaca teks app. App uji dihapus lagi.
 
+Bench di view extension Ghostex sungguhan (CEF Chrome/156, dijalankan user, v0.9.0):
+emulator Medium_Phone_API_26 (Android 8.0), jalur gRPC (tanpa decoder H.264), 874x1942, 20/20 tap:
+**p50 81 ms, p95 117 ms, min 50 ms** (device 70 ms + viewer 11 ms). 11 tap pertama 78–117 ms, 9 terakhir
+50–79 ms: emulator/Chrome di device masih "panas-panasin" di awal. Tidak sebanding langsung dengan angka headless
+di bagian 12–13 (AVD lain: API 37, 814x1810).
+
 Belum: iPhone fisik; perbandingan langsung dengan Orca (dilewati atas keputusan user).
 
 ## 17. Keputusan (default yang dipakai, bisa diubah)
