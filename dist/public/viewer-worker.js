@@ -49,6 +49,7 @@ function onText(msg) {
     post(msg);
   }
   else if (msg.type === "closed") post({ type: "error", message: msg.error ?? "stream ended" });
+  else if (msg.type === "clipboard") post(msg);
 }
 
 function requestKey(force = false) {
@@ -70,11 +71,20 @@ function codecFromConfig(bytes) {
   return "avc1.640028";
 }
 
+// No usable H.264 decoder here: tell the page, which reconnects with a stream that needs none.
+let reportedUnsupported = false;
+function unsupported(message) {
+  codec = null;
+  if (!reportedUnsupported) post({ type: "decoder-unsupported", message });
+  reportedUnsupported = true;
+}
+
 function ensureDecoder(newCodec) {
   if (!decoder || decoder.state === "closed") {
     decoder = new VideoDecoder({
       output: onFrame,
       error: (e) => {
+        if (/not supported/i.test(e.message)) return unsupported(e.message);
         post({ type: "error", message: `decoder: ${e.message}` });
         codec = null; // reconfigure on the next config packet
         waitingForKey = true;
@@ -87,7 +97,11 @@ function ensureDecoder(newCodec) {
   if (decoder.state === "configured") decoder.reset();
   // No hardwareAcceleration hint and no isConfigSupported gate: in Ghostex's CEF the query always
   // says false while the hardware decoder works (Fase 0).
-  decoder.configure({ codec: newCodec, optimizeForLatency: true });
+  try {
+    decoder.configure({ codec: newCodec, optimizeForLatency: true });
+  } catch (e) {
+    return unsupported(e.message);
+  }
   codec = newCodec;
   post({ type: "codec", codec });
 }
@@ -113,9 +127,16 @@ function onPacket(buf) {
     return;
   }
   if (flags & 8) {
-    // JPEG of the current screen, shown until the first keyframe decodes.
+    // A JPEG: the current screen before the first keyframe decodes, or every frame in MJPEG mode
+    // (no H.264 decoder). Drawn only while no H.264 decoder is configured.
+    if (codec || paused) return;
     createImageBitmap(new Blob([payload], { type: "image/jpeg" })).then((bmp) => {
-      if (stats.painted === 0 && canvas) draw(bmp, bmp.width, bmp.height);
+      if (!codec && canvas) {
+        draw(bmp, bmp.width, bmp.height);
+        stats.painted++;
+        stats.latency.push(now() - recvTime);
+        if (bench) checkBench(recvTime);
+      }
       bmp.close();
     }, () => {});
     return;

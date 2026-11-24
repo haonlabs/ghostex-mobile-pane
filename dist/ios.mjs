@@ -1,14 +1,17 @@
 // iOS side: Simulator list/boot/shutdown via simctl, video and input through a serve-sim helper.
 // serve-sim (Apache-2.0, pinned in package.json) captures the framebuffer and injects HID input.
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run, ByteQueue } from "./android.mjs";
 
-const SERVE_SIM = join(dirname(fileURLToPath(import.meta.url)), "..", "node_modules", "serve-sim", "dist", "serve-sim.js");
+// dist/ carries a vendored copy (scripts/build.mjs); src/ runs from the project's node_modules.
+const here = dirname(fileURLToPath(import.meta.url));
+const SERVE_SIM = [join(here, "vendor/node_modules/serve-sim/dist/serve-sim.js"), join(here, "../node_modules/serve-sim/dist/serve-sim.js")].find((p) => existsSync(p));
 const WS_MSG_CONFIG = 0x82; // helper → client: {width, height, orientation}
 // Input tags the viewer may send (serve-sim's [tag][JSON] HID protocol): touch, button, key, scroll.
-export const ALLOWED_INPUT_TAGS = new Set([0x03, 0x04, 0x06, 0x0b]);
+export const ALLOWED_INPUT_TAGS = new Set([0x03, 0x04, 0x05, 0x06, 0x0b]); // + 0x05 two-finger touch
 const TAG_ORIENTATION = 0x07;
 
 const ready = new Set(); // udids whose `simctl bootstatus -b` finished
@@ -158,7 +161,7 @@ export function nalsToAnnexB(frame, lengthSize) {
  * Streams a simulator as Annex-B H.264. callbacks: onSession({ width, height, orientation }),
  * onPacket({ kind: "config" | "key" | "delta" | "seed", data }), onClose(error?)
  */
-export async function startSimStream(udid, callbacks) {
+export async function startSimStream(udid, callbacks, { mjpeg = false } = {}) {
   const sim = await findSim(udid);
   if (sim.state === "stopped") throw new Error(`${sim.name} is not booted`);
   const helper = await ensureHelper(udid);
@@ -229,8 +232,31 @@ export async function startSimStream(udid, callbacks) {
       }
     }
   };
+  // Fallback for viewers without an H.264 decoder: serve-sim's MJPEG stream, each frame a whole JPEG
+  // after a "Content-Length: N" part header (sent as kind "seed": the viewer draws JPEGs itself).
+  const pumpMjpeg = async () => {
+    video = new AbortController();
+    const res = await fetch(`${base}/stream.mjpeg`, { signal: video.signal });
+    if (!res.ok) throw new Error(`stream.mjpeg: HTTP ${res.status}`);
+    let pending = Buffer.alloc(0);
+    for await (const chunk of res.body) {
+      pending = pending.length ? Buffer.concat([pending, Buffer.from(chunk)]) : Buffer.from(chunk);
+      for (;;) {
+        const head = pending.indexOf("\r\n\r\n");
+        if (head < 0) break;
+        const len = Number(/Content-Length:\s*(\d+)/i.exec(pending.subarray(0, head).toString("latin1"))?.[1]);
+        if (!len) {
+          pending = pending.subarray(head + 4); // boundary-only part
+          continue;
+        }
+        if (pending.length < head + 4 + len) break;
+        callbacks.onPacket({ kind: "seed", data: pending.subarray(head + 4, head + 4 + len) });
+        pending = pending.subarray(head + 4 + len);
+      }
+    }
+  };
   const startVideo = () =>
-    pump().then(
+    (mjpeg ? pumpMjpeg() : pump()).then(
       () => close(),
       (error) => error.name !== "AbortError" && close(error),
     );
@@ -265,6 +291,12 @@ export async function startSimStream(udid, callbacks) {
       key("down", 0x19); // V
       key("up", 0x19);
       key("up", 0xe3);
+    },
+    /** The simulator's pasteboard (the page sends Cmd+C/X first and asks a moment later). */
+    copy: async () => {
+      if (closed) return null;
+      const r = await run("xcrun", ["simctl", "pbpaste", udid]);
+      return r.ok ? r.stdout : null;
     },
     rotate: () => {
       const next = orientation === "portrait" ? "landscape_left" : "portrait";

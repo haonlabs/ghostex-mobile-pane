@@ -225,7 +225,7 @@ export async function startScrcpy(serial, { maxSize = 0, maxFps = 60, bitRate = 
   if (!fwd.ok || !port) throw new Error(`adb forward failed: ${fwd.stderr || fwd.stdout}`);
 
   const params = [
-    `scid=${scid}`, "log_level=info", "tunnel_forward=true", "audio=false", "control=true", "cleanup=true", "clipboard_autosync=false",
+    `scid=${scid}`, "log_level=info", "tunnel_forward=true", "audio=false", "control=true", "cleanup=true", "clipboard_autosync=true",
     // video=false: input only, for when frames come from elsewhere (emulator gRPC).
     ...(withVideo ? ["video_codec=h264", `max_fps=${maxFps}`, `video_bit_rate=${bitRate}`, ...(maxSize > 0 ? [`max_size=${maxSize}`] : [])] : ["video=false"]),
   ];
@@ -255,14 +255,59 @@ export async function startScrcpy(serial, { maxSize = 0, maxFps = 60, bitRate = 
       ({ socket: video, rest: firstBytes } = await connectVideo(port, Date.now() + 10000));
       control = await connectOnce(port); // sockets must open in order: video, then control
     } else {
-      ({ socket: control } = await connectVideo(port, Date.now() + 10000)); // control is the first socket: it gets the dummy byte
+      ({ socket: control, rest: firstBytes } = await connectVideo(port, Date.now() + 10000)); // control is the first socket: it gets the dummy byte
     }
   } catch (error) {
     close(error);
     throw new Error(`${error.message}. Server log: ${serverLog.trim()}`);
   }
   control.setNoDelay(true);
-  control.on("data", () => {}); // device messages (clipboard etc.) are ignored for now
+  // Device messages (DeviceMessageWriter, v5.0.1): 0 clipboard [u32 len][utf8], 1 clipboard ack [u64],
+  // 2 UHID output [u16 id][u16 size][data]. With clipboard_autosync the device sends its clipboard on change.
+  // Without video, the control socket is the first one and starts with the 64-byte device name.
+  const cq = new ByteQueue();
+  let skip = withVideo ? 0 : 64;
+  let msgType = null, need = null;
+  const readDeviceMessages = () => {
+    for (;;) {
+      if (skip) {
+        if (!cq.take(skip)) return;
+        skip = 0;
+      }
+      if (msgType === null) {
+        const t = cq.take(1);
+        if (!t) return;
+        msgType = t[0];
+      }
+      if (msgType === 0) {
+        if (need === null) {
+          const l = cq.take(4);
+          if (!l) return;
+          need = l.readUInt32BE(0);
+        }
+        const text = cq.take(need);
+        if (!text) return;
+        callbacks.onClipboard?.(text.toString("utf8"));
+      } else if (msgType === 1) {
+        if (!cq.take(8)) return;
+      } else if (msgType === 2) {
+        if (need === null) {
+          const h = cq.take(4);
+          if (!h) return;
+          need = h.readUInt16BE(2);
+        }
+        if (!cq.take(need)) return;
+      } else {
+        return close(new Error(`unknown device message ${msgType}`));
+      }
+      msgType = need = null;
+    }
+  };
+  control.on("data", (c) => {
+    cq.push(c);
+    readDeviceMessages();
+  });
+  if (!withVideo && firstBytes?.length) cq.push(firstBytes);
   control.on("error", () => close());
   if (!withVideo) {
     control.on("close", () => close());

@@ -10,6 +10,7 @@ export const KEY = {
 export const META_CTRL_ON = 0x1000;
 // Any id other than -1 (mouse) is injected as a finger on the touchscreen.
 const POINTER_GENERIC_FINGER = -2n;
+export const POINTER_VIRTUAL_FINGER = -3n; // second finger for pinch, as scrcpy's client uses
 const utf8 = new TextEncoder();
 
 /** Touch at (x, y) in video-frame pixels; w/h must be the current frame size or the device drops it. */
@@ -76,7 +77,7 @@ export function setClipboard(str, paste = true) {
 
 // ---- iOS Simulator (serve-sim HID WebSocket: [tag][JSON]) ------------------------------
 // From serve-sim 0.1.49 src/device-session.ts handleHidMessage.
-const IOS_TAG = { TOUCH: 0x03, BUTTON: 0x04, KEY: 0x06, SCROLL: 0x0b };
+const IOS_TAG = { TOUCH: 0x03, BUTTON: 0x04, MULTI_TOUCH: 0x05, KEY: 0x06, SCROLL: 0x0b };
 
 function iosFrame(tag, obj) {
   const body = utf8.encode(JSON.stringify(obj));
@@ -88,6 +89,8 @@ function iosFrame(tag, obj) {
 
 /** phase: "begin" | "move" | "end"; x, y normalized 0..1 in the streamed frame. */
 export const iosTouch = (phase, x, y) => iosFrame(IOS_TAG.TOUCH, { type: phase, x, y });
+/** Two fingers (pinch / rotate), all coordinates normalized 0..1. */
+export const iosTouch2 = (phase, x1, y1, x2, y2) => iosFrame(IOS_TAG.MULTI_TOUCH, { type: phase, x1, y1, x2, y2 });
 /** name: "home" | "app_switcher" | "lock" | "siri" | "side_button" | "swipe_home" */
 export const iosButton = (name) => iosFrame(IOS_TAG.BUTTON, { button: name });
 /** USB HID keyboard usage (page 0x07), see HID_USAGE. */

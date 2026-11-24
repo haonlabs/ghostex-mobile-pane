@@ -14,7 +14,7 @@
   ],
   "defaultPlacement": "view",
   "server": {
-    "command": "node dist/server.mjs {port}",
+    "command": "sh dist/start.sh {port}",
     "cwd": ".",
     "readiness": {
       "httpGet": "/health",

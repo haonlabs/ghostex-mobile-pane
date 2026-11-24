@@ -30,7 +30,8 @@
   .device .bezel::after { left: -0.9cqmin; top: 20%; height: 16%; }             /* volume */
   .device.landscape .bezel::before, .device.landscape .bezel::after, .device.bare .bezel { display: none; }
   .device canvas { position: absolute; inset: var(--bezel, 0); width: calc(100% - 2 * var(--bezel, 0px)); height: calc(100% - 2 * var(--bezel, 0px)); border-radius: var(--screen-r, 0); background: #000; touch-action: none; outline: none; }
-  .device canvas:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .device.typing canvas { outline: 2px solid var(--focus); outline-offset: 2px; }
+  #ime { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; pointer-events: none; }
   #frame[aria-pressed="true"] { border-color: var(--focus); }
   #devicesPanel { position: fixed; inset: 44px auto auto 12px; margin: 0; width: min(400px, calc(100vw - 24px)); max-height: calc(100vh - 60px); overflow: auto; padding: 6px; background: var(--bar); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); }
   #devicesPanel h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 8px 6px 4px; }
@@ -60,10 +61,11 @@
 </header>
 <main id="stage"></main>
 <div id="devicesPanel" popover></div>
+<textarea id="ime" aria-label="Keyboard input for the device" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
 <script type="module">
 import {
   ACTION, KEY, META_CTRL_ON, touch, scroll, key, text, setClipboard,
-  iosTouch, iosButton, iosKey, iosScroll, HID_USAGE,
+  iosTouch, iosTouch2, iosButton, iosKey, iosScroll, HID_USAGE, POINTER_VIRTUAL_FINGER,
 } from "/control.js";
 
 const $ = (id) => document.getElementById(id);
@@ -116,7 +118,9 @@ function stop() {
   $("hud").textContent = "";
 }
 
-function start(target) {
+let streamOpts = {}; // { transport, video, maxSize } of the running stream
+
+function start(target, opts = {}) {
   stop();
   current = target;
   document.body.dataset.platform = target.kind;
@@ -126,15 +130,18 @@ function start(target) {
   const device = document.createElement("div");
   device.className = "device";
   device.append(Object.assign(document.createElement("div"), { className: "bezel" }), canvas);
-  canvas.tabIndex = 0;
-  canvas.setAttribute("aria-label", "Device screen. Click to interact, type to send keys.");
+  canvas.setAttribute("aria-label", "Device screen. Click to interact, then type to send keys. Option+drag pinches.");
   stage.append(device);
   attachInput(canvas);
   const offscreen = canvas.transferControlToOffscreen();
   // Android: ask for no more pixels than the pane can show. iOS sends its native size.
-  const maxSize = Math.round(Math.max(stage.clientWidth, stage.clientHeight) * devicePixelRatio);
-  const transport = new URLSearchParams(location.search).get("transport"); // e.g. ?transport=grpc for emulators
-  const query = target.kind === "ios" ? `sim=${encodeURIComponent(target.id)}` : `serial=${encodeURIComponent(target.id)}&maxSize=${maxSize}${transport ? `&transport=${encodeURIComponent(transport)}` : ""}`;
+  const maxSize = paneMaxSize();
+  const params = new URLSearchParams(location.search); // ?transport=grpc|scrcpy, ?video=mjpeg force a path (testing)
+  streamOpts = { transport: opts.transport ?? params.get("transport"), video: opts.video ?? params.get("video"), maxSize };
+  const q = new URLSearchParams(target.kind === "ios" ? { sim: target.id } : { serial: target.id, maxSize });
+  if (streamOpts.transport && target.kind === "android") q.set("transport", streamOpts.transport);
+  if (streamOpts.video && target.kind === "ios") q.set("video", streamOpts.video);
+  const query = q.toString();
   worker = new Worker("/viewer-worker.js");
   worker.onmessage = ({ data }) => {
     if (data.type === "session") {
@@ -146,6 +153,23 @@ function start(target) {
     } else if (data.type === "stats") {
       const l = data.latencyMs;
       $("hud").textContent = `${data.fps} fps · ${l.p50 ?? "–"}/${l.p95 ?? "–"} ms · ${Math.round(data.kbps / 1000 * 10) / 10} Mbps${data.dropped ? ` · drop ${data.dropped}` : ""}`;
+    } else if (data.type === "decoder-unsupported") {
+      // This engine can't decode H.264: reconnect with a stream that needs no decoder.
+      if (target.kind === "ios" && streamOpts.video !== "mjpeg") {
+        start(target, { ...streamOpts, video: "mjpeg" });
+        setStatus("No H.264 decoder here: showing JPEG frames instead (more bandwidth).");
+      } else if (/^emulator-/.test(target.id) && streamOpts.transport !== "grpc") {
+        start(target, { ...streamOpts, transport: "grpc" });
+        setStatus("No H.264 decoder here: using the emulator's raw frames instead.");
+      } else {
+        setStatus(`This view can't decode H.264 (${data.message}), and phones only stream H.264.`, true);
+      }
+    } else if (data.type === "clipboard") {
+      // The device copied text (Android clipboard sync, or iOS after Cmd+C/X): put it on the Mac clipboard.
+      navigator.clipboard.writeText(data.text).then(
+        () => setStatus(`Copied from the device: “${data.text.slice(0, 40)}${data.text.length > 40 ? "…" : ""}”`),
+        () => setStatus("The device copied text, but this view could not write the Mac clipboard.", true),
+      );
     } else if (data.type === "bench-result") {
       benchPending?.(data.result);
     } else if (data.type === "error") {
@@ -156,6 +180,20 @@ function start(target) {
   };
   worker.postMessage({ type: "start", url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/video?${query}`, canvas: offscreen }, [offscreen]);
 }
+
+// ---- stream size follows the pane ------------------------------------------------
+// Android streams at most the pane's pixel size (max_size); after the pane grows or shrinks by more
+// than a quarter, reconnect so it is neither blurry nor wastefully large. iOS always sends its native size.
+const paneMaxSize = () => Math.round(Math.max(stage.clientWidth, stage.clientHeight) * devicePixelRatio);
+let resizeTimer = null;
+new ResizeObserver(() => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (current?.kind !== "android" || !streamOpts.maxSize) return;
+    const ratio = paneMaxSize() / streamOpts.maxSize;
+    if (ratio > 1.25 || ratio < 0.75) start(current, streamOpts);
+  }, 600);
+}).observe(stage);
 
 // ---- Devices panel (Android emulators + iOS Simulators) ------------------------
 
@@ -309,9 +347,29 @@ function toNative(x, y) {
   }
 }
 
+/** Upright normalized vector → the native portrait frame (derivative of toNative). */
+function toNativeVec(dx, dy) {
+  switch (video.orientation) {
+    case "landscape_left": return [dy, -dx];
+    case "landscape_right": return [-dy, dx];
+    case "portrait_upside_down": return [-dx, -dy];
+    default: return [dx, dy];
+  }
+}
+
+// Option+drag = pinch/rotate with a second finger mirrored around the screen center (like scrcpy).
+let pinching = false;
+
 function sendTouch(phase, p) {
-  if (ios()) send(iosTouch(phase, ...toNative(p[0] / video.width, p[1] / video.height)));
-  else send(touch({ begin: ACTION.DOWN, move: ACTION.MOVE, end: ACTION.UP }[phase], p[0], p[1], video.width, video.height));
+  const fx = p[0] / video.width, fy = p[1] / video.height;
+  if (ios()) {
+    if (pinching) send(iosTouch2(phase, ...toNative(fx, fy), ...toNative(1 - fx, 1 - fy)));
+    else send(iosTouch(phase, ...toNative(fx, fy)));
+    return;
+  }
+  const action = { begin: ACTION.DOWN, move: ACTION.MOVE, end: ACTION.UP }[phase];
+  send(touch(action, p[0], p[1], video.width, video.height));
+  if (pinching) send(touch(action, video.width - 1 - p[0], video.height - 1 - p[1], video.width, video.height, POINTER_VIRTUAL_FINGER));
 }
 
 const pressKey = (code, meta = 0) => {
@@ -334,20 +392,41 @@ const SPECIAL_KEYS = {
 
 function androidKeyFor(e) {
   if (SPECIAL_KEYS[e.key]) return [SPECIAL_KEYS[e.key], 0];
-  // Ctrl+letter (select all, copy, …) goes as a keycode; Cmd stays with the Mac.
+  // Ctrl+letter (select all, copy, …) goes as a keycode.
   if (e.ctrlKey && !e.metaKey && /^[a-z]$/i.test(e.key)) return [KEY.A + e.key.toLowerCase().charCodeAt(0) - 97, META_CTRL_ON];
   return null;
 }
 
+// Mac editing shortcuts sent to the device; other Cmd shortcuts stay with Ghostex.
+// Cmd+V is handled by the paste event, which carries the Mac clipboard.
+const EDIT_SHORTCUTS = new Set(["a", "c", "x", "z"]);
+
+function editShortcut(e) {
+  const letter = e.key.toLowerCase();
+  if (ios()) {
+    const usage = HID_USAGE[e.code];
+    send(iosKey("down", HID_USAGE.MetaLeft));
+    send(iosKey("down", usage));
+    send(iosKey("up", usage));
+    send(iosKey("up", HID_USAGE.MetaLeft));
+    // The simulator does not report clipboard changes: read its pasteboard after a copy or cut.
+    if (letter === "c" || letter === "x") setTimeout(() => request({ type: "copy" }), 300);
+  } else {
+    pressKey(KEY.A + letter.charCodeAt(0) - 97, META_CTRL_ON); // Android: Ctrl, and clipboard_autosync reports copies
+  }
+}
+
+/** Pointer, wheel and context menu on the screen canvas. Keys go through #ime (below). */
 function attachInput(el) {
   let down = false;
   el.addEventListener("pointerdown", (e) => {
-    el.focus();
+    $("ime").focus({ preventScroll: true });
     if (e.button === 2) return !ios() && ACTIONS.back(); // right click = back on Android, like scrcpy
     if (e.button !== 0) return;
     const p = toVideo(e, false);
     if (!p) return;
     down = true;
+    pinching = e.altKey;
     try { el.setPointerCapture(e.pointerId); } catch {} // synthetic events have no capturable pointer
     sendTouch("begin", p);
   });
@@ -359,6 +438,7 @@ function attachInput(el) {
     if (!down) return;
     down = false;
     sendTouch("end", toVideo(e, true));
+    pinching = false;
   };
   el.addEventListener("pointerup", up);
   el.addEventListener("pointercancel", up);
@@ -373,15 +453,36 @@ function attachInput(el) {
     if (ios()) {
       const r = canvas.getBoundingClientRect();
       const s = Math.min(r.width / video.width, r.height / video.height);
-      // ponytail: scroll deltas are not turned for iOS landscape yet; add with the same remap if it matters.
-      send(iosScroll((e.deltaX * px) / (video.width * s), (e.deltaY * px) / (video.height * s), ...toNative(p[0] / video.width, p[1] / video.height)));
+      const [dx, dy] = toNativeVec((e.deltaX * px) / (video.width * s), (e.deltaY * px) / (video.height * s));
+      send(iosScroll(dx, dy, ...toNative(p[0] / video.width, p[1] / video.height)));
     } else {
       send(scroll(p[0], p[1], video.width, video.height, (-e.deltaX * px) / 40, (-e.deltaY * px) / 40));
     }
   }, { passive: false });
+}
 
-  el.addEventListener("keydown", (e) => {
-    if (e.metaKey) return; // Cmd+V arrives as a paste event; other Cmd shortcuts belong to Ghostex
+// Keyboard: a hidden textarea holds focus while the screen is in use, so input methods work:
+// composed text (Japanese, Chinese, emoji picker, dictation) arrives in compositionend / input events.
+{
+  const ime = $("ime");
+  const sendText = (value) => {
+    if (!value || !current) return;
+    if (ios()) request({ type: "paste", text: value });
+    // scrcpy injects only characters the device keyboard map has (ASCII); others go by clipboard paste.
+    else if (/[^\x20-\x7e]/.test(value)) send(setClipboard(value, true));
+    else send(text(value));
+  };
+  ime.addEventListener("focus", () => canvas?.parentElement?.classList.add("typing"));
+  ime.addEventListener("blur", () => canvas?.parentElement?.classList.remove("typing"));
+  ime.addEventListener("keydown", (e) => {
+    if (!current || e.isComposing || e.keyCode === 229) return; // the input method owns this key
+    if (e.metaKey) {
+      if (EDIT_SHORTCUTS.has(e.key.toLowerCase()) && !e.shiftKey) {
+        editShortcut(e);
+        e.preventDefault();
+      }
+      return;
+    }
     if (ios()) {
       const usage = HID_USAGE[e.code];
       if (usage == null) return;
@@ -394,22 +495,32 @@ function attachInput(el) {
     }
     e.preventDefault();
   });
-  el.addEventListener("keyup", (e) => {
+  ime.addEventListener("keyup", (e) => {
+    if (!current || e.isComposing || e.metaKey) return;
     if (ios()) {
       const usage = HID_USAGE[e.code];
       if (usage == null) return;
       send(iosKey("up", usage));
     } else {
-      const k = !e.metaKey && androidKeyFor(e);
+      const k = androidKeyFor(e);
       if (!k) return;
       send(key(ACTION.UP, k[0], 0, k[1]));
     }
     e.preventDefault();
   });
-  el.addEventListener("paste", (e) => {
+  ime.addEventListener("compositionend", (e) => {
+    sendText(e.data);
+    ime.value = "";
+  });
+  // Text that arrives without key events we handled (emoji picker, dictation, autocomplete).
+  ime.addEventListener("input", (e) => {
+    if (!e.isComposing && e.inputType === "insertText") sendText(e.data);
+    if (!e.isComposing) ime.value = "";
+  });
+  ime.addEventListener("paste", (e) => {
     const value = e.clipboardData?.getData("text");
     e.preventDefault();
-    if (!value) return;
+    if (!value || !current) return;
     if (ios()) request({ type: "paste", text: value });
     else send(setClipboard(value, true));
   });

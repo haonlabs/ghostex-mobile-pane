@@ -66,6 +66,7 @@ async function streamVideo(ws, url) {
   try {
     session = await startScrcpy(serial, { maxSize }, {
       onSession: (s) => ws.sendText(JSON.stringify({ type: "session", platform: "android", ...s })),
+      onClipboard: (text) => ws.sendText(JSON.stringify({ type: "clipboard", text })),
       onPacket: ({ config, key, data }) => {
         if (!config && ws.buffered > MAX_BUFFERED) {
           if (!skipToKey) session?.sendControl(CONTROL_RESET_VIDEO);
@@ -120,7 +121,10 @@ async function streamEmulatorGrpc(ws, serial, maxSize) {
     ws.close();
   };
   try {
-    input = await startScrcpy(serial, { video: false }, { onClose: (e) => e && fail(e) });
+    input = await startScrcpy(serial, { video: false }, {
+      onClipboard: (text) => ws.sendText(JSON.stringify({ type: "clipboard", text })),
+      onClose: (e) => e && fail(e),
+    });
     video = await startGrpcStream(serial, { maxSize }, {
       onSession: (s) => {
         device = s.device;
@@ -147,7 +151,7 @@ async function streamEmulatorGrpc(ws, serial, maxSize) {
 // ---- /video?sim=<udid>: iOS Simulator through serve-sim -----------------------
 // Same wire as Android (Annex-B; flags 1 config, 2 keyframe) plus 8 = JPEG seed of the current screen.
 
-async function streamSimVideo(ws, udid) {
+async function streamSimVideo(ws, udid, mjpeg = false) {
   let session = null;
   let skipToKey = false;
   const header = (flags) => {
@@ -166,11 +170,13 @@ async function streamSimVideo(ws, udid) {
     if (m.type === "resetVideo") session?.requestKeyframe();
     if (m.type === "rotate") session?.rotate();
     if (m.type === "paste") session?.paste(m.text);
+    if (m.type === "copy") session?.copy().then((text) => text && ws.sendText(JSON.stringify({ type: "clipboard", text })));
   };
   try {
     session = await startSimStream(udid, {
       onSession: (s) => ws.sendText(JSON.stringify({ type: "session", platform: "ios", ...s })),
       onPacket: ({ kind, data }) => {
+        if (kind === "seed" && mjpeg && ws.buffered > MAX_BUFFERED) return; // JPEGs stand alone: drop when behind
         if (kind === "delta" && ws.buffered > MAX_BUFFERED) {
           if (!skipToKey) session?.requestKeyframe();
           skipToKey = true;
@@ -184,7 +190,7 @@ async function streamSimVideo(ws, udid) {
         ws.sendText(JSON.stringify({ type: "closed", error: error?.message ?? null }));
         ws.close();
       },
-    });
+    }, { mjpeg });
     if (ws.closed) session.close();
   } catch (error) {
     ws.sendText(JSON.stringify({ type: "closed", error: error.message }));
@@ -353,7 +359,7 @@ server.on("upgrade", (request, socket) => {
   if (url.pathname !== "/video" && url.pathname !== "/ws") return socket.destroy();
   const ws = acceptWebSocket(request, socket);
   if (!ws) return;
-  if (url.pathname === "/video" && url.searchParams.get("sim")) streamSimVideo(ws, url.searchParams.get("sim"));
+  if (url.pathname === "/video" && url.searchParams.get("sim")) streamSimVideo(ws, url.searchParams.get("sim"), url.searchParams.get("video") === "mjpeg");
   else if (url.pathname === "/video") streamVideo(ws, url);
   else probeEcho(ws);
 });

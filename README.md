@@ -49,11 +49,16 @@ Screenshots go to `~/.local/share/ghostex/extensions/data/mobile-pane-plugin/scr
 
 ## Build
 
-`dist/` is a plain copy of `src/`. iOS needs the pinned `serve-sim` package
-(`.npmrc` turns off bin symlinks, which Ghostex refuses in local extensions):
+`dist/` is what Ghostex runs and is committed. `scripts/build.mjs` copies `src/`, adds the
+pinned runtime packages (serve-sim's `dist`, `ws`) under `dist/vendor/node_modules/`, checks the
+scrcpy-server SHA-256 and refuses symlinks (`.npmrc` turns off npm's bin symlinks, which Ghostex
+refuses in local extensions):
 
     npm ci --ignore-scripts
-    rm -rf dist && cp -R src dist
+    npm run build
+
+Checks: `node src/android.mjs` (scrcpy smoke test against a running device) and
+`node src/ios.mjs` (avcC → Annex-B self-check).
 
 ## Install locally
 
@@ -72,8 +77,25 @@ can't be reached.
   Devices panel.
 - iOS: an Apple Silicon Mac with Xcode (tested with Xcode 27.2, iOS 27.2 runtime).
 
-## Permissions
+## Permissions and what runs
 
-None. The command server is an unsandboxed Node process; it runs `adb` (and pushes
-scrcpy-server to the device's `/data/local/tmp`), `emulator`, `xcrun simctl` and the
-serve-sim helper (which listens on 127.0.0.1:3100+), and itself only listens on 127.0.0.1.
+No Ghostex bridge permissions. The command server is an unsandboxed Node process started
+through `dist/start.sh` (which finds Node on PATH, or in nvm, Herd, fnm, Volta or Homebrew).
+It listens on 127.0.0.1 only; WebSocket and POST requests must come from the extension's own
+page (other origins get 403). It runs:
+
+- `adb` (devices, `push` of scrcpy-server to `/data/local/tmp`, `forward`, `reverse` for Bench,
+  `install`, `shell input`, `uiautomator dump`, `screencap`) and `emulator` (start, `emu kill`,
+  `emu rotate`). Emulators started here enable gRPC with token auth on 127.0.0.1.
+- `xcrun simctl` (list, boot, shutdown, screenshot, pbcopy, openurl, install, launch) and the
+  bundled serve-sim helper, which listens on 127.0.0.1:3100+.
+
+Bundled third-party code (in `dist/vendor/`):
+
+| Component | Version | License | Source |
+|---|---|---|---|
+| scrcpy-server | 5.0.1 | Apache-2.0 | GitHub release asset, sha256 `764eb6f7…bc536` (checked by the build) |
+| serve-sim (dist only) | 0.1.49 | Apache-2.0 | npm, pinned in package-lock.json |
+| ws | from serve-sim's lockfile | MIT | npm |
+
+Build: `npm ci --ignore-scripts && npm run build`.
