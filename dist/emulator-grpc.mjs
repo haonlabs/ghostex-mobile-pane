@@ -1,6 +1,6 @@
 // Android emulator fast path: frames straight from the emulator's gRPC `streamScreenshot` (raw RGBA,
 // scaled by the emulator), skipping the guest's software H.264 encoder and adb.
-// Fase 5 spike: 814x1810 at 60 fps (scrcpy managed ~35) and tap → frame 68 ms p50 (scrcpy 81 ms).
+// Measured on an API 37 emulator: 814x1810 at 60 fps (scrcpy managed ~35) and tap → frame 68 ms p50 (scrcpy 81 ms).
 // Needs an emulator started with `-grpc <port> -grpc-use-token` (startAvd does that).
 import http2 from "node:http2";
 import { readdir, readFile } from "node:fs/promises";

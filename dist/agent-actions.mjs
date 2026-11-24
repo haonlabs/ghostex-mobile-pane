@@ -1,4 +1,4 @@
-// Actions for coding agents (Fase 7): look at and drive a device without the viewer open.
+// Actions for coding agents: look at and drive a device without the viewer open.
 // Coordinates are normalized 0..1 on both platforms; `ui` returns element centers in the same units,
 // so an agent can pass them straight to `tap`.
 import { mkdir, access } from "node:fs/promises";

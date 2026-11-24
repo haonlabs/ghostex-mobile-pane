@@ -96,7 +96,7 @@ function ensureDecoder(newCodec) {
   if (codec === newCodec) return;
   if (decoder.state === "configured") decoder.reset();
   // No hardwareAcceleration hint and no isConfigSupported gate: in Ghostex's CEF the query always
-  // says false while the hardware decoder works (Fase 0).
+  // says false while the hardware decoder works (seen on Ghostex 11.15).
   try {
     decoder.configure({ codec: newCodec, optimizeForLatency: true });
   } catch (e) {

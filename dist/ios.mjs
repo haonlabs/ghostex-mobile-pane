@@ -125,7 +125,7 @@ export async function simPasteboard(udid, text) {
 }
 
 // Ghostex's CEF decodes H.264 only as Annex-B: an avcC `description` fails with "H.264 decoding is not
-// supported" while the same stream as Annex-B decodes (High@5.1, 1206x2622, tested in Fase 4).
+// supported" while the same stream as Annex-B decodes (High@5.1, 1206x2622, measured on an iPhone 17 simulator).
 const START_CODE = Buffer.from([0, 0, 0, 1]);
 
 /** avcC record → Annex-B SPS/PPS packet; also returns the NAL length size. */

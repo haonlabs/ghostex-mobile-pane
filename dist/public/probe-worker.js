@@ -1,4 +1,4 @@
-// Fase 0: prove the video path works off the UI thread —
+// Capability probe: prove the video path works off the UI thread —
 // WebCodecs H.264 encode → decode → paint on a transferred OffscreenCanvas.
 const pct = (xs, p) => (xs.length ? xs.slice().sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * p))] : null);
 

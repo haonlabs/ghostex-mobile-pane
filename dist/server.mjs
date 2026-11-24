@@ -1,5 +1,5 @@
 // Mobile Pane server: serves the viewer, lists devices and streams scrcpy H.264 over WebSocket.
-// Also keeps the Fase 0 probe (/probe.html) for checking other machines.
+// Also serves the capability probe (/probe.html) for checking other machines.
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -130,7 +130,7 @@ async function streamVideo(ws, url) {
   const serial = url.searchParams.get("serial");
   const maxSize = Math.min(Number(url.searchParams.get("maxSize")) || 0, 4096);
   if (!serial) return ws.close();
-  // Emulators with gRPC on stream through it by default (Fase 5: ~56 vs ~40 fps, same tap latency,
+  // Emulators with gRPC on stream through it by default (measured: ~56 vs ~40 fps, same tap latency,
   // ~0.26 core more); ?transport=scrcpy forces the H.264 path. Phones always use scrcpy.
   if (url.searchParams.get("transport") !== "scrcpy" && (await grpcEndpoint(serial))) return streamEmulatorGrpc(ws, serial, maxSize);
   let hub = null;
@@ -303,7 +303,7 @@ async function openTouchTest({ kind, id }) {
   if (!r.ok) throw new Error(r.stderr || "am start failed");
 }
 
-// ---- Fase 0 probe endpoints ------------------------------------------------
+// ---- capability probe endpoints ------------------------------------------------
 
 function probeEcho(ws) {
   ws.onmessage = (msg) => {
