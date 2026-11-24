@@ -24,7 +24,7 @@ emulators started from **Devices** stream raw frames over the emulator's gRPC (s
 | Device frame | **Frame** toggles our bezel. Streams never include an emulator skin or Simulator.app bezel (emulators run without a window and only the screen is captured), so every device gets the same style of frame: iPhone, iPad or Android. |
 | Measure latency | **Bench**: opens a test page on the device (Chrome on Android via `adb reverse`, Safari on iOS) and taps it 20 times; the status line shows input → screen p50/p95. On a fresh emulator, dismiss Chrome's first-run screens once. |
 | Start / stop an emulator or simulator | **Devices** in the toolbar. Emulators run without a window (`-no-window`) and keep running after the view closes; stop them from the same list. Their output goes to `$GHOSTEX_EXTENSION_DATA_DIR/emulator-<avd>.log`. |
-The Fase 0 capability probe is still at `/probe.html`.
+A capability probe (WebCodecs, Worker, WebSocket, adb/emulator/simctl) is at `/probe.html`.
 
 ## For coding agents
 
