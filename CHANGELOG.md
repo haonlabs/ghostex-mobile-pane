@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0] - {PR_MERGE_DATE}
+
+- Self-contained dist (vendored serve-sim and ws), reproducible build (`npm run build`, verified with
+  the catalog's verify-dist), and a launcher that finds Node outside Ghostex's PATH.
+- One stream per device, shared by every viewer (second pane, remote viewer, Bench).
+- The stream follows the pane size; without an H.264 decoder it falls back to MJPEG (iOS) or raw
+  gRPC frames (emulators).
+- Input methods (Japanese, Chinese, emoji picker, dictation) through a hidden textarea; non-ASCII
+  text on Android is pasted.
+- Cmd+A/C/X/Z reach the device; device copies land on the Mac clipboard.
+- Option+drag pinches with two fingers on Android and iOS.
+- iOS: Home is a bottom-edge swipe (also leaves the App Switcher); the app's orientation is
+  rechecked every 2 s in landscape; wheel scrolling follows landscape.
+- Android phones with auto-rotate on can be rotated (the next orientation is locked).
+- Agent CLI: tap and swipe use the current rotation on Android 10+.
+
 ## [0.8.0] - {PR_MERGE_DATE}
 
 - Device frame around the screen for every device (iPhone, iPad and Android profiles: bezel,

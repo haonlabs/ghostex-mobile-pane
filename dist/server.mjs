@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { acceptWebSocket } from "./ws.mjs";
-import { androidSdk, listDevices, listAvds, startAvd, stopAvd, run, startScrcpy, CONTROL_RESET_VIDEO } from "./android.mjs";
+import { androidSdk, listDevices, listAvds, startAvd, stopAvd, run, startScrcpy, rotatePhone, CONTROL_RESET_VIDEO } from "./android.mjs";
 import { listSims, bootSim, shutdownSim, startSimStream, ALLOWED_INPUT_TAGS } from "./ios.mjs";
 import { grpcEndpoint, startGrpcStream } from "./emulator-grpc.mjs";
 
@@ -35,8 +35,96 @@ const MAX_BUFFERED = 2 << 20;
 const ALLOWED_CONTROL = new Set([0, 1, 2, 3, 9]);
 const MAX_CONTROL_BYTES = 256 * 1024;
 
-// ---- /video: one scrcpy session per viewer ---------------------------------
-// ponytail: a second viewer of the same device starts a second scrcpy session; fan-out one stream when remote viewers land.
+// ---- shared Android streams ---------------------------------------------------
+// One device session serves every viewer of that device (a second pane, a remote viewer, Bench).
+// A joining viewer gets the last session message and decoder config, then a keyframe it asks for
+// (scrcpy) or the last frame (gRPC: a still screen sends nothing new). Backpressure is per viewer.
+// The session closes 3 s after its last viewer leaves, so a quick reconnect (a resize) reuses it.
+// ponytail: the first viewer's maxSize wins; viewers of other pane sizes get that resolution scaled.
+
+const hubs = new Map(); // "scrcpy:<serial>" | "grpc:<serial>" → hub
+
+function header(flags) {
+  const h = Buffer.allocUnsafe(9);
+  h[0] = flags;
+  h.writeDoubleLE(now(), 1);
+  return h;
+}
+
+function createHub(key) {
+  const hub = {
+    viewers: new Map(), // ws → { waitKey }
+    sessionText: null,
+    config: null,
+    requestKey: () => {},
+    onJoin: () => {},
+    close: () => {},
+    text(obj, remember = false) {
+      const t = JSON.stringify(obj);
+      if (remember) hub.sessionText = t;
+      for (const ws of hub.viewers.keys()) ws.sendText(t);
+    },
+    // H.264: deltas need the frames before them, so a viewer that fell behind waits for a keyframe.
+    packet(flags, data, { config, key }) {
+      if (config) hub.config = { flags, data: Buffer.from(data) };
+      for (const [ws, v] of hub.viewers) {
+        if (!config) {
+          if (v.waitKey && !key) continue;
+          if (ws.buffered > MAX_BUFFERED) {
+            if (!v.waitKey) hub.requestKey();
+            v.waitKey = true;
+            continue;
+          }
+          if (key) v.waitKey = false;
+        }
+        ws.sendBinary(header(flags), data);
+      }
+    },
+    // Raw frames stand alone: a viewer that is behind just skips one.
+    raw(head, data) {
+      for (const ws of hub.viewers.keys()) if (ws.buffered <= MAX_BUFFERED) ws.sendBinary(head, data);
+    },
+    end(error) {
+      if (hubs.get(key) === hub) hubs.delete(key);
+      const t = JSON.stringify({ type: "closed", error: error?.message ?? null });
+      for (const ws of hub.viewers.keys()) {
+        ws.sendText(t);
+        ws.close();
+      }
+      hub.viewers.clear();
+    },
+  };
+  return hub;
+}
+
+async function joinHub(key, ws, start) {
+  let hub = hubs.get(key);
+  if (!hub) {
+    hub = start(createHub(key));
+    hubs.set(key, hub);
+  }
+  clearTimeout(hub.closeTimer);
+  hub.viewers.set(ws, { waitKey: true });
+  ws.onclose = () => {
+    hub.viewers.delete(ws);
+    if (hub.viewers.size) return;
+    hub.closeTimer = setTimeout(() => {
+      if (hub.viewers.size) return;
+      if (hubs.get(key) === hub) hubs.delete(key);
+      hub.close();
+    }, 3000);
+  };
+  try {
+    await hub.ready;
+  } catch (error) {
+    hub.end(error);
+    return null;
+  }
+  if (ws.closed) return null;
+  if (hub.sessionText) ws.sendText(hub.sessionText);
+  hub.onJoin(ws);
+  return hub;
+}
 
 async function streamVideo(ws, url) {
   const serial = url.searchParams.get("serial");
@@ -45,107 +133,93 @@ async function streamVideo(ws, url) {
   // Emulators with gRPC on stream through it by default (Fase 5: ~56 vs ~40 fps, same tap latency,
   // ~0.26 core more); ?transport=scrcpy forces the H.264 path. Phones always use scrcpy.
   if (url.searchParams.get("transport") !== "scrcpy" && (await grpcEndpoint(serial))) return streamEmulatorGrpc(ws, serial, maxSize);
-  let session = null;
-  let skipToKey = false;
-  const header = (flags) => {
-    const h = Buffer.allocUnsafe(9);
-    h[0] = flags;
-    h.writeDoubleLE(now(), 1);
-    return h;
-  };
-  ws.onclose = () => session?.close();
+  let hub = null;
   ws.onmessage = (msg) => {
+    const session = hub?.session;
+    if (!session) return;
     if (typeof msg !== "string") {
-      if (msg.length <= MAX_CONTROL_BYTES && ALLOWED_CONTROL.has(msg[0])) session?.sendControl(msg);
+      if (msg.length <= MAX_CONTROL_BYTES && ALLOWED_CONTROL.has(msg[0])) session.sendControl(msg);
       return;
     }
     const m = JSON.parse(msg);
-    if (m.type === "resetVideo") session?.sendControl(CONTROL_RESET_VIDEO);
+    if (m.type === "resetVideo") hub.requestKey();
     if (m.type === "rotate") rotateDevice(serial, session);
   };
-  try {
-    session = await startScrcpy(serial, { maxSize }, {
-      onSession: (s) => ws.sendText(JSON.stringify({ type: "session", platform: "android", ...s })),
-      onClipboard: (text) => ws.sendText(JSON.stringify({ type: "clipboard", text })),
-      onPacket: ({ config, key, data }) => {
-        if (!config && ws.buffered > MAX_BUFFERED) {
-          if (!skipToKey) session?.sendControl(CONTROL_RESET_VIDEO);
-          skipToKey = true;
-        }
-        if (skipToKey && !config && !key) return;
-        if (key) skipToKey = false;
-        ws.sendBinary(header((config ? 1 : 0) | (key ? 2 : 0)), data);
-      },
-      onClose: (error) => {
-        ws.sendText(JSON.stringify({ type: "closed", error: error?.message ?? null }));
-        ws.close();
-      },
+  hub = await joinHub(`scrcpy:${serial}`, ws, (h) => {
+    h.requestKey = () => h.session?.sendControl(CONTROL_RESET_VIDEO);
+    // A new stream starts with config + keyframe by itself. Only a viewer joining a running stream
+    // needs one asked for (and RESET_VIDEO before capture has started stops scrcpy-server).
+    h.onJoin = (viewer) => {
+      if (!h.config) return;
+      viewer.sendBinary(header(h.config.flags), h.config.data);
+      h.requestKey();
+    };
+    h.ready = startScrcpy(serial, { maxSize }, {
+      onSession: (s) => h.text({ type: "session", platform: "android", ...s }, true),
+      onClipboard: (text) => h.text({ type: "clipboard", text }),
+      onPacket: ({ config, key, data }) => h.packet((config ? 1 : 0) | (key ? 2 : 0), data, { config, key }),
+      onClose: (error) => h.end(error),
+    }).then((session) => {
+      h.session = session;
+      h.close = () => session.close();
     });
-    if (ws.closed) session.close();
-  } catch (error) {
-    ws.sendText(JSON.stringify({ type: "closed", error: error.message }));
-    ws.close();
-  }
+    return h;
+  });
 }
 
-// ---- /video?serial=emulator-N&transport=grpc: frames from the emulator's gRPC, input via scrcpy --
-// Wire: flags 16 = raw RGBA, header [flags][f64 time][u16 width][u16 height]. Frames are independent,
-// so a viewer that falls behind just loses frames (no keyframe to wait for).
+// ---- /video?serial=emulator-N (gRPC on): frames from the emulator's gRPC, input via scrcpy -------
+// Wire: flags 16 = raw RGBA, header [flags][f64 time][u16 width][u16 height].
 
 async function streamEmulatorGrpc(ws, serial, maxSize) {
-  let video = null;
-  let input = null;
-  let device = null;
-  ws.onclose = () => {
-    video?.close();
-    input?.close();
-  };
+  let hub = null;
   ws.onmessage = (msg) => {
+    if (!hub?.input) return;
     if (typeof msg !== "string") {
-      if (msg.length > MAX_CONTROL_BYTES || !ALLOWED_CONTROL.has(msg[0]) || !input || !device) return;
+      if (msg.length > MAX_CONTROL_BYTES || !ALLOWED_CONTROL.has(msg[0]) || !hub.device) return;
       // Without a video stream scrcpy injects raw device pixels: rescale from the frame size.
       const at = msg[0] === 2 ? 10 : msg[0] === 3 ? 1 : -1;
       if (at >= 0) {
         const fw = msg.readUInt16BE(at + 8), fh = msg.readUInt16BE(at + 10);
-        msg.writeInt32BE(Math.round((msg.readInt32BE(at) * device.width) / fw), at);
-        msg.writeInt32BE(Math.round((msg.readInt32BE(at + 4) * device.height) / fh), at + 4);
+        msg.writeInt32BE(Math.round((msg.readInt32BE(at) * hub.device.width) / fw), at);
+        msg.writeInt32BE(Math.round((msg.readInt32BE(at + 4) * hub.device.height) / fh), at + 4);
       }
-      input.sendControl(msg);
+      hub.input.sendControl(msg);
       return;
     }
     const m = JSON.parse(msg);
-    if (m.type === "rotate") rotateDevice(serial, input);
+    if (m.type === "rotate") rotateDevice(serial, hub.input);
   };
-  const fail = (error) => {
-    ws.sendText(JSON.stringify({ type: "closed", error: error?.message ?? null }));
-    ws.close();
-  };
-  try {
-    input = await startScrcpy(serial, { video: false }, {
-      onClipboard: (text) => ws.sendText(JSON.stringify({ type: "clipboard", text })),
-      onClose: (e) => e && fail(e),
-    });
-    video = await startGrpcStream(serial, { maxSize }, {
-      onSession: (s) => {
-        device = s.device;
-        ws.sendText(JSON.stringify({ type: "session", platform: "android", width: s.width, height: s.height, deviceName: `${serial} · gRPC` }));
-      },
-      onFrame: (rgba, w, h) => {
-        if (ws.buffered > MAX_BUFFERED) return; // behind: drop this frame, the next one is complete on its own
-        const head = Buffer.allocUnsafe(13);
-        head[0] = 16;
-        head.writeDoubleLE(now(), 1);
-        head.writeUInt16LE(w, 9);
-        head.writeUInt16LE(h, 11);
-        ws.sendBinary(head, rgba);
-      },
-      onClose: (e) => fail(e),
-    });
-    if (ws.closed) ws.onclose();
-  } catch (error) {
-    fail(error);
-    ws.onclose();
-  }
+  hub = await joinHub(`grpc:${serial}`, ws, (h) => {
+    h.onJoin = (viewer) => h.last && viewer.sendBinary(...h.last);
+    h.ready = (async () => {
+      h.input = await startScrcpy(serial, { video: false }, {
+        onClipboard: (text) => h.text({ type: "clipboard", text }),
+        onClose: (e) => e && h.end(e),
+      });
+      const video = await startGrpcStream(serial, { maxSize }, {
+        onSession: (s) => {
+          h.device = s.device;
+          h.text({ type: "session", platform: "android", width: s.width, height: s.height, deviceName: `${serial} · gRPC` }, true);
+        },
+        onFrame: (rgba, w, hgt) => {
+          const head = Buffer.allocUnsafe(13);
+          head[0] = 16;
+          head.writeDoubleLE(now(), 1);
+          head.writeUInt16LE(w, 9);
+          head.writeUInt16LE(hgt, 11);
+          h.last = [head, rgba]; // kept by reference for the next viewer to join
+          h.raw(head, rgba);
+        },
+        onClose: (e) => h.end(e),
+      });
+      h.close = () => {
+        video.close();
+        h.input.close();
+      };
+    })();
+    h.ready.catch(() => h.input?.close());
+    return h;
+  });
 }
 
 // ---- /video?sim=<udid>: iOS Simulator through serve-sim -----------------------
@@ -198,14 +272,13 @@ async function streamSimVideo(ws, udid, mjpeg = false) {
   }
 }
 
-// scrcpy's ROTATE_DEVICE freezes then re-thaws rotation when auto-rotate is on, so it does nothing there.
-// An emulator can turn its virtual sensor instead, which works either way.
-// ponytail: physical phones with auto-rotate on still won't turn; `cmd window user-rotation lock` would, but changes their setting.
+// An emulator turns its virtual sensor (works with auto-rotate on or off). A phone with auto-rotate on
+// gets the next orientation locked (rotatePhone); with it off, scrcpy's ROTATE_DEVICE works.
 async function rotateDevice(serial, session) {
   if (serial.startsWith("emulator-")) {
     const { adb } = await androidSdk();
     await run(adb, ["-s", serial, "emu", "rotate"]);
-  } else {
+  } else if (!(await rotatePhone(serial))) {
     session?.sendControl(Buffer.from([11])); // ControlMessage.TYPE_ROTATE_DEVICE
   }
 }

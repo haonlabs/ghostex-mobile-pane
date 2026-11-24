@@ -87,8 +87,18 @@ function iosFrame(tag, obj) {
   return out.buffer;
 }
 
-/** phase: "begin" | "move" | "end"; x, y normalized 0..1 in the streamed frame. */
-export const iosTouch = (phase, x, y) => iosFrame(IOS_TAG.TOUCH, { type: phase, x, y });
+/** phase: "begin" | "move" | "end"; x, y normalized 0..1 in the native portrait frame.
+ *  edge: 0 none, 1 left, 2 top, 3 bottom (swipe home on Face ID devices), 4 right. */
+export const iosTouch = (phase, x, y, edge = 0) => iosFrame(IOS_TAG.TOUCH, edge ? { type: phase, x, y, edge } : { type: phase, x, y });
+
+/** Swipe up from the bottom edge: goes home from an app and from the App Switcher, where the Home
+ *  button does nothing. Frames with pauses (ms) in between, for a sender that honors them. */
+export const iosSwipeHome = () => {
+  const out = [iosTouch("begin", 0.5, 0.995, 3)];
+  for (let i = 1; i <= 12; i++) out.push(16, iosTouch("move", 0.5, 0.995 - (0.45 * i) / 12, 3));
+  out.push(16, iosTouch("end", 0.5, 0.545, 3));
+  return out;
+};
 /** Two fingers (pinch / rotate), all coordinates normalized 0..1. */
 export const iosTouch2 = (phase, x1, y1, x2, y2) => iosFrame(IOS_TAG.MULTI_TOUCH, { type: phase, x1, y1, x2, y2 });
 /** name: "home" | "app_switcher" | "lock" | "siri" | "side_button" | "swipe_home" */

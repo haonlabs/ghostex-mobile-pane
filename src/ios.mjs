@@ -173,6 +173,7 @@ export async function startSimStream(udid, callbacks, { mjpeg = false } = {}) {
   const close = (error) => {
     if (closed) return;
     closed = true;
+    clearInterval(orientationTimer);
     video?.abort();
     input.close();
     callbacks.onClose?.(error);
@@ -182,21 +183,30 @@ export async function startSimStream(udid, callbacks, { mjpeg = false } = {}) {
   const input = new WebSocket(`ws://127.0.0.1:${helper.port}/helper/${udid}/ws`);
   input.binaryType = "arraybuffer";
   // The helper reports the DEVICE orientation. A portrait-only app (Settings on iPhone) keeps drawing
-  // upright in device landscape, so turning its frames would show it sideways: after a rotation, ask
-  // the accessibility tree whether the app's window is actually landscape and report that instead.
-  // ponytail: checked on each rotation only; switching apps while in landscape is not re-checked.
-  let configSeq = 0;
-  input.onmessage = async ({ data }) => {
+  // upright in device landscape, so turning its frames would show it sideways: while the device is in
+  // landscape, ask the accessibility tree whether the app's window is landscape too and report that.
+  // Checked after each rotation and every 2 s (an app switch changes it without a rotation).
+  let cfg = null;
+  let reported = null;
+  const report = (orientationToShow) => {
+    if (!cfg || reported === orientationToShow) return;
+    reported = orientationToShow;
+    callbacks.onSession?.({ ...cfg, orientation: orientationToShow, deviceName: sim.name });
+  };
+  const checkAppOrientation = async () => {
+    if (closed || !/landscape/.test(cfg?.orientation ?? "")) return;
+    const frame = await fetch(`${base}/ax`).then((r) => r.json()).then((t) => t[0]?.frame, () => null);
+    if (frame && !closed && /landscape/.test(cfg.orientation)) report(frame.height > frame.width ? "portrait" : cfg.orientation);
+  };
+  const orientationTimer = setInterval(checkAppOrientation, 2000);
+  input.onmessage = ({ data }) => {
     const b = new Uint8Array(data);
     if (b[0] !== WS_MSG_CONFIG) return;
-    const cfg = JSON.parse(new TextDecoder().decode(b.subarray(1)));
+    cfg = JSON.parse(new TextDecoder().decode(b.subarray(1)));
     orientation = cfg.orientation ?? orientation;
-    const seq = ++configSeq;
-    callbacks.onSession?.({ ...cfg, deviceName: sim.name });
-    if (!/landscape/.test(cfg.orientation ?? "")) return;
-    await new Promise((r) => setTimeout(r, 700)); // let the app finish its own rotation
-    const frame = await fetch(`${base}/ax`).then((r) => r.json()).then((t) => t[0]?.frame, () => null);
-    if (seq === configSeq && !closed && frame && frame.height > frame.width) callbacks.onSession?.({ ...cfg, orientation: "portrait", deviceName: sim.name });
+    reported = null;
+    report(cfg.orientation ?? "portrait");
+    setTimeout(checkAppOrientation, 700); // let the app finish its own rotation
   };
   input.onclose = () => close();
   await new Promise((resolve, reject) => {

@@ -65,7 +65,7 @@
 <script type="module">
 import {
   ACTION, KEY, META_CTRL_ON, touch, scroll, key, text, setClipboard,
-  iosTouch, iosTouch2, iosButton, iosKey, iosScroll, HID_USAGE, POINTER_VIRTUAL_FINGER,
+  iosTouch, iosTouch2, iosButton, iosKey, iosScroll, iosSwipeHome, HID_USAGE, POINTER_VIRTUAL_FINGER,
 } from "/control.js";
 
 const $ = (id) => document.getElementById(id);
@@ -379,7 +379,15 @@ const pressKey = (code, meta = 0) => {
 
 const ACTIONS = {
   back: () => pressKey(KEY.BACK),
-  home: () => (ios() ? send(iosButton("home")) : pressKey(KEY.HOME)),
+  home: async () => {
+    if (!ios()) return pressKey(KEY.HOME);
+    // Phones with a Home button (SE) open Control Center on a bottom-edge swipe; others go home with it.
+    if (/\bSE\b/.test(current.label)) return send(iosButton("home"));
+    for (const step of iosSwipeHome()) {
+      if (typeof step === "number") await new Promise((r) => setTimeout(r, step));
+      else send(step);
+    }
+  },
   recents: () => (ios() ? send(iosButton("app_switcher")) : pressKey(KEY.APP_SWITCH)),
   rotate: () => request({ type: "rotate" }),
 };

@@ -270,7 +270,37 @@ Diukur di Chrome headless (2× DPR) via CDP, 20 tap, jeda acak terhadap vsync:
 - Insiden uji: port CDP 9334 ternyata milik Ghostex; script screenshot sempat menyentuh tab Mobile Pane
   di Ghostex (halaman error, tanpa efek). Uji headless sekarang memakai port 9336.
 
-## 16. Keputusan (default yang dipakai, bisa diubah)
+## 16. Persiapan publish & penutupan celah (2026-11-24)
+
+Publish:
+- `npm run build` (scripts/build.mjs): dist = src + serve-sim `dist` + `ws` di `dist/vendor/node_modules`,
+  cek sha256 scrcpy-server, tolak symlink. 6,2 MB. Validator resmi lolos; **verify-dist resmi lolos**
+  ("Verified 1 reproducible dist"), dijalankan pada salinan repo Ghostex-extensions berisi extension ini saja.
+- `dist/start.sh` mencari Node (PATH, nvm, Herd, fnm, Volta, Homebrew); tanpa Node: pesan jelas, exit 127.
+- `metadata/` screenshot store; README: izin, apa yang dijalankan, tabel kode pihak ketiga.
+
+Celah yang ditutup (semua diuji di Chrome headless dengan emulator/simulator sungguhan):
+- Stream mengikuti ukuran pane (reconnect saat berubah > 25%): 694x1542 → 1080x2400 saat pane 2×.
+- Tanpa decoder H.264: iOS → MJPEG (diuji dipaksa `?video=mjpeg`), emulator → gRPC mentah. Pemicu otomatis
+  belum teruji (CEF di Mac ini selalu punya decoder hardware).
+- IME lewat textarea tersembunyi: komposisi "にほん"→"日本" + "a" masuk ke Android ("日本a") dan iOS Safari
+  ("日本b"); non-ASCII di Android lewat clipboard paste.
+- Cmd+A/C/X/Z ke device; clipboard device → Mac (Android `clipboard_autosync`, iOS `pbpaste`) terbukti.
+- Option+drag pinch: iOS Safari membesar; Android terbaca "fingers: 2" di halaman uji (DevTools Chrome device).
+- Satu stream per device untuk banyak viewer (hub): dua viewer + satu session scrcpy; viewer kedua langsung
+  dapat gambar (keyframe diminta; gRPC: frame terakhir). Bug: RESET_VIDEO sebelum capture mulai membuat
+  scrcpy-server berhenti → keyframe hanya diminta untuk stream yang sudah jalan.
+- iOS: orientasi app dicek ulang tiap 2 dtk saat landscape (Safari↔Settings 2,5–2,8 dtk); scroll landscape
+  mengikuti orientasi; Home = swipe dari tepi bawah (`edge: 3`), juga keluar dari App Switcher.
+- HP Android dengan auto-rotate: kunci orientasi berikutnya (`cmd window user-rotation lock`); rotasi dibaca
+  dari `dumpsys window` (`mRotation=`), karena `SurfaceOrientation` tidak ada lagi di Android 17 (juga
+  memperbaiki koordinat tap agent CLI di landscape).
+- Agent CLI `install`: APK uji (aapt2 + apksigner) dan app SwiftUI uji (swiftc + codesign ad-hoc) terpasang;
+  `launch` + `ui` membaca teks app. App uji dihapus lagi.
+
+Belum: iPhone fisik; perbandingan langsung dengan Orca (dilewati atas keputusan user).
+
+## 17. Keputusan (default yang dipakai, bisa diubah)
 
 - Frontend: vanilla JS (tanpa React).
 - Prioritas: Android sampai Fase 3, lalu iOS.

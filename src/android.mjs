@@ -61,6 +61,34 @@ export async function listDevices() {
     });
 }
 
+/** Current display rotation 0-3 (quarter turns). Android 10+ reports it in the window manager dump. */
+export async function displayRotation(serial) {
+  const { adb } = await androidSdk();
+  const win = (await run(adb, ["-s", serial, "shell", "dumpsys", "window", "displays"])).stdout.match(/\bmRotation=(\d)/);
+  if (win) return Number(win[1]);
+  const input = (await run(adb, ["-s", serial, "shell", "dumpsys", "input"])).stdout.match(/SurfaceOrientation: (\d)/); // older Androids
+  return Number(input?.[1] ?? 0);
+}
+
+/**
+ * Turns a phone between portrait and landscape. scrcpy's ROTATE_DEVICE freezes then re-thaws rotation
+ * when auto-rotate is on, so nothing happens; then lock the next orientation instead. That switches
+ * auto-rotate off on the phone, as rotating by hand on a rotation-locked phone would.
+ * Returns false when auto-rotate is off: the caller can use scrcpy's ROTATE_DEVICE.
+ */
+export async function rotatePhone(serial) {
+  const { adb } = await androidSdk();
+  const sh = (...args) => run(adb, ["-s", serial, "shell", ...args]);
+  if ((await sh("settings", "get", "system", "accelerometer_rotation")).stdout.trim() !== "1") return false;
+  const next = String((await displayRotation(serial)) % 2 === 0 ? 1 : 0);
+  const locked = await sh("cmd", "window", "user-rotation", "lock", next);
+  if (!locked.ok || /Unknown|Error/i.test(locked.stdout)) {
+    await sh("settings", "put", "system", "accelerometer_rotation", "0"); // before Android 11
+    await sh("settings", "put", "system", "user_rotation", next);
+  }
+  return true;
+}
+
 // ---- emulators (AVDs) -------------------------------------------------------
 
 const booting = new Map(); // avd name → { serial, startedAt, error }

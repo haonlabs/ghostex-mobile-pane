@@ -12,8 +12,11 @@ the HUD shows fps, server→paint latency (p50/p95) and bitrate.
 | Scroll | Mouse wheel or trackpad |
 | Type | Click the screen, then type; Enter, Backspace, arrows, Tab, Esc work |
 | Paste | Cmd+V (puts the text on the device clipboard and pastes it) |
+| Copy, cut, select all, undo | Cmd+C / X / A / Z on the device; what the device copies lands on the Mac clipboard |
+| Pinch / rotate with two fingers | Option+drag (a second finger mirrors yours around the screen center) |
+| Input methods | Japanese, Chinese, the emoji picker and dictation work while the screen has focus |
 | Back (Android) | Right click, or ◁ |
-| Home / Recents / Rotate | ○ / ▢ / ⟳ |
+| Home / Recents / Rotate | ○ / ▢ / ⟳ (iOS Home is a swipe up from the bottom edge, so it also leaves the App Switcher; Rotate on a phone with auto-rotate on locks the next orientation and turns auto-rotate off) |
 | Device frame | **Frame** toggles our bezel. Streams never include an emulator skin or Simulator.app bezel (emulators run without a window and only the screen is captured), so every device gets the same style of frame: iPhone, iPad or Android. |
 | Measure latency | **Bench**: opens a test page on the device (Chrome on Android via `adb reverse`, Safari on iOS) and taps it 20 times; the status line shows input → screen p50/p95. On a fresh emulator, dismiss Chrome's first-run screens once. |
 | Start / stop an emulator or simulator | **Devices** in the toolbar. Emulators run without a window (`-no-window`) and keep running after the view closes; stop them from the same list. Their output goes to `$GHOSTEX_EXTENSION_DATA_DIR/emulator-<avd>.log`. |

@@ -3,8 +3,9 @@
 // so an agent can pass them straight to `tap`.
 import { mkdir, access } from "node:fs/promises";
 import { join } from "node:path";
-import { androidSdk, listDevices, run } from "./android.mjs";
+import { androidSdk, listDevices, run, displayRotation } from "./android.mjs";
 import { listSims, simInput, simAccessibility, simPasteboard } from "./ios.mjs";
+import { iosSwipeHome } from "./public/control.js";
 
 const ANDROID_KEYS = { home: 3, back: 4, enter: 66, delete: 67, recents: 187, power: 26, volume_up: 24, volume_down: 25 };
 const IOS_BUTTONS = { home: "home", recents: "app_switcher", lock: "lock", power: "side_button", siri: "siri" };
@@ -64,9 +65,8 @@ async function androidSize(serial) {
   // Current orientation: the root node of a UI dump is the whole screen; wm size is portrait only.
   const out = await adb(serial, ["shell", "wm", "size"]);
   const m = out.match(/Override size: (\d+)x(\d+)/) ?? out.match(/Physical size: (\d+)x(\d+)/);
-  const rot = (await adb(serial, ["shell", "dumpsys", "input"]).catch(() => "")).match(/SurfaceOrientation: (\d)/)?.[1];
   const [w, h] = [Number(m[1]), Number(m[2])];
-  return rot === "1" || rot === "3" ? { width: h, height: w } : { width: w, height: h };
+  return (await displayRotation(serial)) % 2 ? { width: h, height: w } : { width: w, height: h };
 }
 
 export async function screenshot({ device }, dataDir) {
@@ -136,7 +136,9 @@ export async function type({ device, text }) {
 export async function key({ device, key: name }) {
   const t = await target(device);
   if (t.platform === "ios") {
-    if (IOS_BUTTONS[name]) await simInput(t.device, [json(0x04, { button: IOS_BUTTONS[name] })]);
+    // Home as a bottom-edge swipe also leaves the App Switcher; SE models have a real Home button.
+    if (name === "home" && !/\bSE\b/.test(t.name)) await simInput(t.device, iosSwipeHome().map((f) => (typeof f === "number" ? f : Buffer.from(f))));
+    else if (IOS_BUTTONS[name]) await simInput(t.device, [json(0x04, { button: IOS_BUTTONS[name] })]);
     else if (HID[name]) await simInput(t.device, [json(0x06, { type: "down", usage: HID[name] }), json(0x06, { type: "up", usage: HID[name] })]);
     else throw new Error(`iOS keys: ${[...Object.keys(IOS_BUTTONS), ...Object.keys(HID)].join(", ")}`);
   } else {
