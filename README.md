@@ -1,10 +1,14 @@
 # Mobile Pane
 
-Ghostex view extension to mirror and control Android devices, Android emulators and
-iOS Simulators. See [PLAN.md](PLAN.md) for the roadmap.
+A Ghostex view that mirrors and controls Android phones, Android emulators and iOS
+Simulators: live screen in a device frame, touch, keyboard and input methods, clipboard both
+ways, start and stop emulators and simulators, a latency bench, and a CLI plus skill so coding
+agents can look at the screen and drive it.
 
-**Current state: Fase 4, Android and iOS Simulator mirroring, input, and start/stop.** Pick a device in the toolbar;
-the HUD shows fps, server→paint latency (p50/p95) and bitrate.
+Pick a device in the toolbar, or start one from **Devices**. The HUD shows fps, server → paint
+latency (p50/p95) and bitrate. Android phones and emulators stream through scrcpy-server (H.264);
+emulators started from **Devices** stream raw frames over the emulator's gRPC (smoother, about
+60 fps); iOS Simulators stream through serve-sim.
 
 | Do | How |
 |---|---|
