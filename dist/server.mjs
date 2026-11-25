@@ -9,6 +9,7 @@ import { acceptWebSocket } from "./ws.mjs";
 import { androidSdk, listDevices, listAvds, startAvd, stopAvd, run, startScrcpy, rotatePhone, CONTROL_RESET_VIDEO } from "./android.mjs";
 import { listSims, bootSim, shutdownSim, startSimStream, ALLOWED_INPUT_TAGS } from "./ios.mjs";
 import { grpcEndpoint, startGrpcStream } from "./emulator-grpc.mjs";
+import { wifiState, connectPhone, startQr, cancelQr } from "./wifi.mjs";
 
 const port = Number.parseInt(process.argv[2] ?? "", 10);
 if (!Number.isInteger(port) || port < 1) {
@@ -24,6 +25,7 @@ const STATIC = {
   "/probe.html": ["probe.html", "text/html; charset=utf-8"],
   "/probe-worker.js": ["probe-worker.js", "text/javascript; charset=utf-8"],
   "/touchtest.html": ["touchtest.html", "text/html; charset=utf-8"],
+  "/qr.js": ["qr.js", "text/javascript; charset=utf-8"],
 };
 const now = () => performance.timeOrigin + performance.now();
 // Any web page can open a WebSocket or POST to 127.0.0.1, so only our own page may stream,
@@ -391,6 +393,10 @@ const server = createServer(async (request, response) => {
       await stopAvd(JSON.parse(await readBody(request)).serial);
       return json(response, 200, { ok: true });
     }
+    if (url.pathname === "/wifi") return json(response, 200, await wifiState());
+    if (url.pathname === "/wifi/qr" && request.method === "POST") return json(response, 200, startQr());
+    if (url.pathname === "/wifi/qr/cancel" && request.method === "POST") return json(response, 200, cancelQr() ?? { ok: true });
+    if (url.pathname === "/wifi/connect" && request.method === "POST") return json(response, 200, await connectPhone(JSON.parse(await readBody(request))));
     if (url.pathname === "/env") return json(response, 200, await hostEnv());
     if (url.pathname === "/stream") {
       const n = Math.min(Number(url.searchParams.get("n")) || 50, 500);

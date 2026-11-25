@@ -11,4 +11,6 @@
 - Devices panel: start and stop Android emulators (headless, Quick Boot) and iOS Simulators.
 - One stream per device shared by every viewer; MJPEG or raw-frame fallback without an H.264 decoder.
 - Bench: input → screen latency on the device itself.
+- Android phones over Wi-Fi from **Devices**: pair with a QR or a 6-digit code, connect paired phones,
+  and reconnect dropped ones by themselves, without Android Studio.
 - Agent CLI and `mobile-pane` skill: devices, screenshot, ui, tap, swipe, type, key, install, launch.

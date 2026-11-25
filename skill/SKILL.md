@@ -29,7 +29,7 @@ It works even when the Mobile Pane view is closed, as long as a device or simula
 
 - **Coordinates are 0..1 on both platforms.** `0,0` is the top left and `1,1` is the bottom right of the screen as it is shown now.
 - `device` takes an id or part of a name, such as `"emulator-5554"` or `"iPhone 17"`. Leave it out when only one device is ready.
-- To start an emulator or simulator, ask the user to use **Devices** in the Mobile Pane view.
+- To start an emulator or simulator, or to connect an Android phone over Wi-Fi, ask the user to use **Devices** in the Mobile Pane view. A phone on Wi-Fi has an id such as `192.168.1.20:37123` or `adb-<serial>-<id>._adb-tls-connect._tcp`.
 
 ## Typical loop
 
