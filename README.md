@@ -25,6 +25,8 @@ emulators started from **Devices** stream raw frames over the emulator's gRPC (s
 | Measure latency | **Bench**: opens a test page on the device (Chrome on Android via `adb reverse`, Safari on iOS) and taps it 20 times; the status line shows input → screen p50/p95. On a fresh emulator, dismiss Chrome's first-run screens once. |
 | Connect a phone over Wi-Fi | **Devices** › Android phones over Wi-Fi, with Wireless debugging on in the phone's Developer options and both on the same Wi-Fi. **Pair with QR** shows the QR to scan from *Pair device with QR code*; **Pair with code** takes the 6-digit code of a phone showing *Pair device with pairing code* (or its IP address & port typed by hand). Paired phones get **Connect**; one connected from here reconnects by itself when it drops while it is still on the network. If pairing or connecting says *No route to host*, turn on System Settings › Privacy & Security › Local Network for Ghostex and for Android Studio: adb runs with the permission of whichever app started it. |
 | Start / stop an emulator or simulator | **Devices** in the toolbar. Emulators run without a window (`-no-window`) and keep running after the view closes; stop them from the same list. Their output goes to `$GHOSTEX_EXTENSION_DATA_DIR/emulator-<avd>.log`. |
+| Run a project | **Run** in the toolbar › pick project folder › flavor or `.vscode/launch.json` preset › **Run**. Hot reload / restart for Flutter debug, **Stop**, automatic Java / fvm resolution, and installing missing pinned Flutter SDKs. |
+
 A capability probe (WebCodecs, Worker, WebSocket, adb/emulator/simctl) is at `/probe.html`.
 
 ## For coding agents
@@ -54,6 +56,11 @@ Screenshots go to `~/.local/share/ghostex/extensions/data/mobile-pane-plugin/scr
 - `src/ios.mjs`: simctl list/boot/shutdown, the serve-sim helper, avcC → Annex-B relay.
   `node src/ios.mjs` self-checks the Annex-B conversion.
 - `src/public/control.js`: scrcpy control messages and serve-sim HID messages.
+- `src/project.mjs`: project detection (Flutter / Android Gradle), variants listing via Gradle init script, toolchain resolution (Java, fvm, Android SDK), and recent projects. `node src/project.mjs --self-check`
+  checks the flavor and launch.json parsers.
+- `src/mobile-pane-variants.gradle`: Gradle init script that prints each installable variant (AGP 7+).
+- `src/runner.mjs`: process runner for Gradle and Flutter (`flutter run --machine`), log streaming, stop, hot reload and restart.
+- `src/public/run.js`: Run drawer UI for project selection, build variants/presets, controls, and streaming log view.
 - `src/vendor/scrcpy-server-v5.0.1.jar`: from the official scrcpy v5.0.1 release
   (Apache-2.0), sha256 `764eb6f79811d5211fe9df341120882ba9994c7a61b897d7bf3fb662e53bc536`.
 

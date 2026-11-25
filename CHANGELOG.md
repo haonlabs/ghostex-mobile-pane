@@ -6,6 +6,7 @@
 - Mirror and control Android phones and emulators (scrcpy-server 5.0.1, H.264) and iOS Simulators
   (serve-sim 0.1.49), in a device frame that fits the pane and follows rotation.
 - Emulators started from **Devices** stream raw frames over the emulator's gRPC (about 60 fps).
+- Run panel: pick a Flutter or Android Gradle project, select flavors or `.vscode/launch.json` presets, run on the selected Android device, view live logs, Stop, and Hot reload / restart for Flutter debug builds.
 - Touch, drag, wheel, Option+drag pinch, keyboard and input methods, Cmd+A/C/X/Z/V, and the
   device clipboard back to the Mac.
 - Devices panel: start and stop Android emulators (headless, Quick Boot) and iOS Simulators.
