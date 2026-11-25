@@ -1,6 +1,6 @@
 // Android wireless debugging: find phones over mDNS, pair them (QR or 6-digit code) and connect with adb.
 // Discovery: macOS Bonjour (dns-sd) plus adb's own mDNS, which is often empty on macOS.
-// Never runs `adb kill-server`: Android Studio shares the same adb server.
+// Runs `adb kill-server` only from restartAdb (a user click): Android Studio shares the same adb server.
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { lookup } from "node:dns/promises";
@@ -14,7 +14,8 @@ const PAIRING = "_adb-tls-pairing._tcp";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const HINT =
   " macOS blocks this app from the local network: turn on System Settings › Privacy & Security › Local Network for Ghostex" +
-  " (and for Android Studio, which may have started the adb server), then try again.";
+  " (and for Android Studio, which may have started the adb server), then try again." +
+  " If Local Network is already on, restart adb: a server started before the permission was granted stays blocked.";
 const withHint = (e) => new Error(/No route to host|EHOSTUNREACH|Host is down|EHOSTDOWN/i.test(e.message) ? `${e.message.replace(/\.?$/, ".")}${HINT}` : e.message);
 
 // ---- discovery -----------------------------------------------------------------
@@ -170,6 +171,17 @@ export async function connectPhone({ name, address, code }) {
   } catch (e) {
     throw withHint(e);
   }
+}
+
+/** Only from a user click: restarts the adb server (it then inherits the Local Network permission), then reconnects phones now. */
+export async function restartAdb() {
+  const { adb } = await androidSdk();
+  if (!adb) throw new Error("adb not found (set ANDROID_HOME)");
+  await run(adb, ["kill-server"]); // fails harmlessly when no server runs
+  const r = await run(adb, ["start-server"], 30000);
+  if (!r.ok) throw new Error(`adb start-server failed: ${r.stderr || r.stdout || "no answer"}`);
+  retryAfter.clear();
+  await reconnectDropped().catch(() => {});
 }
 
 // ---- QR pairing ------------------------------------------------------------------------

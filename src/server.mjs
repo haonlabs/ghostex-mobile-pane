@@ -9,7 +9,7 @@ import { acceptWebSocket } from "./ws.mjs";
 import { androidSdk, listDevices, listAvds, startAvd, stopAvd, run, startScrcpy, rotatePhone, CONTROL_RESET_VIDEO } from "./android.mjs";
 import { listSims, bootSim, shutdownSim, startSimStream, ALLOWED_INPUT_TAGS } from "./ios.mjs";
 import { grpcEndpoint, startGrpcStream } from "./emulator-grpc.mjs";
-import { wifiState, connectPhone, startQr, cancelQr } from "./wifi.mjs";
+import { wifiState, connectPhone, startQr, cancelQr, restartAdb } from "./wifi.mjs";
 
 const port = Number.parseInt(process.argv[2] ?? "", 10);
 if (!Number.isInteger(port) || port < 1) {
@@ -397,6 +397,7 @@ const server = createServer(async (request, response) => {
     if (url.pathname === "/wifi/qr" && request.method === "POST") return json(response, 200, startQr());
     if (url.pathname === "/wifi/qr/cancel" && request.method === "POST") return json(response, 200, cancelQr() ?? { ok: true });
     if (url.pathname === "/wifi/connect" && request.method === "POST") return json(response, 200, await connectPhone(JSON.parse(await readBody(request))));
+    if (url.pathname === "/wifi/restart-adb" && request.method === "POST") return json(response, 200, (await restartAdb(), { ok: true }));
     if (url.pathname === "/env") return json(response, 200, await hostEnv());
     if (url.pathname === "/stream") {
       const n = Math.min(Number(url.searchParams.get("n")) || 50, 500);

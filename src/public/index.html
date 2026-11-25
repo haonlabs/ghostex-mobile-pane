@@ -333,8 +333,27 @@ async function showPhone(serial) {
   await loadTargets(`android:${serial}`);
 }
 
+// The "No route to host" hint (see wifi.mjs) gets a Restart adb button.
+function hintText(el, message) {
+  el.textContent = message ?? "";
+  if (!/Local Network/.test(message ?? "")) return;
+  const b = Object.assign(document.createElement("button"), { textContent: "Restart adb" });
+  b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = "Restarting…";
+    try {
+      await postJson("/wifi/restart-adb", {});
+      wifiError(null);
+      await refreshPanel();
+    } catch (e) {
+      wifiError(e.message);
+    }
+  };
+  el.append(" ", b);
+}
+
 function wifiError(message) {
-  $("wifiError").textContent = message ?? "";
+  hintText($("wifiError"), message);
   $("wifiError").hidden = !message;
 }
 
@@ -378,12 +397,12 @@ async function renderWifi({ phones, pairing, qr }) {
     shownQr = qr.payload;
   }
   $("qrStatus").className = qr.state === "error" ? "error" : "";
-  $("qrStatus").textContent =
+  hintText($("qrStatus"),
     qr.state === "waiting" ? `Waiting for the phone…${qr.seen.length ? ` Seen on the network: ${qr.seen.join(", ")}` : ""}`
     : qr.state === "pairing" ? "Pairing…"
     : qr.state === "connecting" ? "Paired. Connecting…"
     : qr.state === "connected" ? "Connected."
-    : qr.error;
+    : qr.error);
   $("qrCancel").textContent = qr.state === "error" ? "Close" : "Cancel";
   if (qr.state === "connected") {
     await postJson("/wifi/qr/cancel", {});

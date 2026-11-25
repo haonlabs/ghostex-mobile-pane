@@ -12,5 +12,6 @@
 - One stream per device shared by every viewer; MJPEG or raw-frame fallback without an H.264 decoder.
 - Bench: input → screen latency on the device itself.
 - Android phones over Wi-Fi from **Devices**: pair with a QR or a 6-digit code, connect paired phones,
-  and reconnect dropped ones by themselves, without Android Studio.
+  and reconnect dropped ones by themselves, without Android Studio. A **Restart adb** button on the
+  "No route to host" hint fixes an adb server started before Local Network was allowed.
 - Agent CLI and `mobile-pane` skill: devices, screenshot, ui, tap, swipe, type, key, install, launch.
