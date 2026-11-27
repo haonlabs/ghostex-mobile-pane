@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.2] - {PR_MERGE_DATE}
+
+- One lock per device, so agents and the Run panel of different projects no longer tap, install or launch over each other. A call from another project waits for the first to finish (up to 10 minutes, then "device … is busy"), the Run panel log shows "Waiting for <project> to finish on <device>", and the lock frees itself after 3 minutes without an action. Agents of the same project share it.
+- Agent CLI: new `release` action, and `devices` shows which project holds each device. The `mobile-pane` skill tells agents to call `release` when they finish testing.
+
 ## [0.9.1] - {PR_MERGE_DATE}
 
 - The `mobile-pane` skill tells agents to open the Mobile Pane view beside their chat (`ghostex extensions open mobile-pane-plugin --background`, Ghostex 12.3 or newer) before they start testing on a device.

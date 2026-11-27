@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { androidSdk, listDevices, run } from "./android.mjs";
+import { acquire, release as freeLock, projectOf } from "./device-lock.mjs";
 import { detectProject, findOnPath, listVariants, rememberProject, toolchain } from "./project.mjs";
 
 const MAX_LINES = 5000;
@@ -83,6 +84,7 @@ function createJob(fields) {
     pending: new Map(),
     requestId: 0,
     killTimers: new Set(),
+    lock: null,
     done: null,
     resolveDone: null,
   };
@@ -94,6 +96,10 @@ function createJob(fields) {
 /** Ends a job once: rejects pending Flutter requests, drops timers and resolves stopRun's wait. */
 function finish(job, phase, { error = null, message } = {}) {
   if (TERMINAL.has(job.phase)) return;
+  if (job.lock) {
+    clearInterval(job.lock.beat);
+    freeLock(job.lock.dataDir, job.lock.owner, job.serial).catch(() => {});
+  }
   job.error = error;
   setPhase(job, phase, message);
   const pending = [...job.pending.values()];
@@ -219,6 +225,31 @@ async function waitForPid(job, serial, appId) {
     await delay(500);
   }
   return null;
+}
+
+/**
+ * Takes the device lock for this job's project, logging "Waiting for <project>…" while another project holds it.
+ * Keeps it fresh while building and launching; a running app lets it go stale after 3 minutes, like an agent's.
+ * Returns false when the job was stopped or the wait timed out (the job is then ended).
+ */
+async function holdDevice(job, owner, dataDir) {
+  const lock = { dataDir, owner, beat: null };
+  const touch = () => acquire(dataDir, job.serial, owner, { wait: 0 }).catch(() => {});
+  try {
+    const held = await acquire(dataDir, job.serial, owner, {
+      cancelled: () => job.stopping,
+      onWait: (other) => log(job, "info", `Waiting for ${other.project.name} to finish on ${job.serial}.`),
+    });
+    if (!held) return stopped(job), false;
+  } catch (error) {
+    return fail(job, error.message), false;
+  }
+  if (TERMINAL.has(job.phase)) return freeLock(dataDir, owner, job.serial).catch(() => {}), false; // stopped while acquiring
+  job.lock = lock;
+  lock.beat = setInterval(() => ["building", "launching"].includes(job.phase) && touch(), 60000);
+  lock.beat.unref?.();
+  lock.touch = touch;
+  return true;
 }
 
 // ---- Gradle -----------------------------------------------------------------
@@ -478,9 +509,11 @@ async function startRunLocked(body, dataDir) {
   for (const note of tools.notes) log(job, "info", note);
   await rememberProject(dataDir, project, selection);
 
-  const flow = project.type === "gradle"
-    ? runGradle(job, project, tools, variant, serial)
-    : runFlutter(job, project, tools, settings, serial);
+  const owner = await projectOf(project.path);
+  const flow = holdDevice(job, owner, dataDir).then((held) => {
+    if (!held) return;
+    return project.type === "gradle" ? runGradle(job, project, tools, variant, serial) : runFlutter(job, project, tools, settings, serial);
+  });
   flow.catch((error) => {
     if (TERMINAL.has(job.phase)) log(job, "err", error?.message ?? String(error));
     else fail(job, error?.message ?? String(error));
@@ -519,6 +552,7 @@ async function reloadRunLocked(full) {
     throw new Error("Hot reload is only available while a Flutter app runs in debug mode");
   }
   if (!job.appId) throw new Error("No Flutter app to reload yet");
+  job.lock?.touch();
   await sendRequest(job, "app.restart", {
     appId: job.appId,
     fullRestart: Boolean(full),
