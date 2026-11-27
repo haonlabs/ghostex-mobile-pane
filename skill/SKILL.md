@@ -36,7 +36,7 @@ It works even when the Mobile Pane view is closed, as long as a device or simula
 
 `tap`, `swipe`, `type`, `key`, `install` and `launch` lock the device for your project (the git repository you run in). Agents of the same project share the lock. If another project holds it, your call **waits** (up to 10 minutes, or `"wait": <seconds>` in the JSON) and then runs; if the wait runs out you get `{"error": "device <id> is busy: in use by project <name> since <time>"}`: tell the user, do not retry in a loop. `devices`, `screenshot` and `ui` never wait. The lock frees itself after 3 minutes without an action from its owner.
 
-**When you finish testing, run `release`** so other projects can continue straight away.
+**When you finish testing, run `release`** so other projects can continue straight away. It may shut an emulator or Simulator down when nobody else is waiting for it (never a real phone); start it again from **Devices** or ask the user.
 
 ## Show the phone to the user
 

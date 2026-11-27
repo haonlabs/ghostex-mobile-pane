@@ -7,6 +7,7 @@ import { androidSdk, listDevices, run, displayRotation } from "./android.mjs";
 import { listSims, simInput, simAccessibility, simPasteboard } from "./ios.mjs";
 import { iosSwipeHome } from "./public/control.js";
 import { acquire, holders, projectOf, release as freeLocks } from "./device-lock.mjs";
+import { shutdownIfOn } from "./idle-shutdown.mjs";
 
 const ANDROID_KEYS = { home: 3, back: 4, enter: 66, delete: 67, recents: 187, power: 26, volume_up: 24, volume_down: 25 };
 const IOS_BUTTONS = { home: "home", recents: "app_switcher", lock: "lock", power: "side_button", siri: "siri" };
@@ -34,7 +35,7 @@ async function hold(t, args, dataDir) {
 
 export async function release({ device }, dataDir) {
   const t = device ? await target(device) : null;
-  return { released: await freeLocks(dataDir, await projectOf(), t?.device) };
+  return { released: await freeLocks(dataDir, await projectOf(), t?.device, await shutdownIfOn(dataDir)) };
 }
 
 // A simulator booted before this process started reads "booting" until its quick bootstatus check
@@ -246,6 +247,6 @@ export const HELP = {
   key: "{device?, key}: home, back (Android), recents, enter, delete, … ",
   install: "{device?, path}: absolute path to an .apk (Android) or a built .app folder (iOS Simulator).",
   launch: "{device?, app}: package name (Android) or bundle id (iOS).",
-  release: "{device?} → {released: [device ids]}. Call it when you finish testing so other projects can use the device. tap, swipe, type, key, install and launch lock the device for your project; another project's agent waits (up to `wait` seconds, default 600) until you release or stop acting for 3 minutes.",};
+  release: "{device?} → {released: [device ids]}. Call it when you finish testing so other projects can use the device. An emulator or Simulator nobody else is waiting for is shut down (never a real phone). tap, swipe, type, key, install and launch lock the device for your project; another project's agent waits (up to `wait` seconds, default 600) until you release or stop acting for 3 minutes.",};
 
 export const ACTIONS = { devices, screenshot, tap, swipe, type, key, install, launch, ui, release };

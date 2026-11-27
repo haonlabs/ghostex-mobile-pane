@@ -11,7 +11,9 @@ import { listSims, bootSim, shutdownSim, startSimStream, ALLOWED_INPUT_TAGS } fr
 import { grpcEndpoint, startGrpcStream } from "./emulator-grpc.mjs";
 import { wifiState, connectPhone, startQr, cancelQr, restartAdb } from "./wifi.mjs";
 import { detectProject, listVariants, recentProjects, rememberProject } from "./project.mjs";
-import { startRun, stopRun, reloadRun, runState, installFlutter } from "./runner.mjs";
+import { startRun, stopRun, reloadRun, runState, installFlutter, runningSerial } from "./runner.mjs";
+import { sweep } from "./device-lock.mjs";
+import { getSettings, saveSettings, shutdownDevice } from "./idle-shutdown.mjs";
 
 const port = Number.parseInt(process.argv[2] ?? "", 10);
 if (!Number.isInteger(port) || port < 1) {
@@ -396,6 +398,7 @@ const server = createServer(async (request, response) => {
       await stopAvd(JSON.parse(await readBody(request)).serial);
       return json(response, 200, { ok: true });
     }
+    if (url.pathname === "/settings") return json(response, 200, request.method === "POST" ? await saveSettings(DATA_DIR, JSON.parse(await readBody(request))) : await getSettings(DATA_DIR));
     if (url.pathname === "/wifi") return json(response, 200, await wifiState());
     if (url.pathname === "/wifi/qr" && request.method === "POST") return json(response, 200, startQr());
     if (url.pathname === "/wifi/qr/cancel" && request.method === "POST") return json(response, 200, cancelQr() ?? { ok: true });
@@ -541,4 +544,8 @@ server.on("upgrade", (request, socket) => {
   else probeEcho(ws);
 });
 
+// Locks of owners that never released go stale after 3 minutes with nobody to notice: look every 30 s.
+setInterval(() => {
+  getSettings(DATA_DIR).then((s) => s.shutdownIdle && sweep(DATA_DIR, shutdownDevice, (id) => id === runningSerial())).catch(() => {});
+}, 30000).unref?.(); // a failed sweep just tries again in 30 s
 server.listen(port, "127.0.0.1", () => console.log(`mobile-pane on http://127.0.0.1:${port}`));

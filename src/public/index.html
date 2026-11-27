@@ -40,6 +40,7 @@
   #devicesPanel .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   #devicesPanel .state { color: var(--muted); font-size: 12px; }
   #devicesPanel .error { color: var(--bad); font-size: 12px; }
+  #devicesPanel .setting { display: flex; gap: 8px; align-items: center; padding: 8px 6px 4px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
   #devicesPanel p { margin: 6px; color: var(--muted); }
   #devicesPanel p.error { color: var(--bad); }
   #devicesPanel input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; min-width: 0; }
@@ -119,6 +120,7 @@
   <p id="wifiError" class="error" role="alert" hidden></p>
   <div id="wifiList"></div>
   <div id="emuList"></div>
+  <label class="setting"><input type="checkbox" id="shutdownIdle"> Shut down emulators when a project is done</label>
 </div>
 <textarea id="ime" aria-label="Keyboard input for the device" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
 <script type="module">
@@ -473,6 +475,9 @@ $("codeForm").onsubmit = async (e) => {
 };
 
 $("devicesPanel").addEventListener("toggle", (e) => e.newState === "open" && refreshPanel().catch((err) => setStatus(err.message, true)));
+// Stored by the server (the agent CLI reads it too), not in localStorage.
+fetch("/settings").then((r) => r.json()).then((s) => ($("shutdownIdle").checked = s.shutdownIdle), () => {});
+$("shutdownIdle").onchange = (e) => postJson("/settings", { shutdownIdle: e.target.checked }).catch((err) => { e.target.checked = !e.target.checked; setStatus(err.message, true); });
 
 // ---- input -------------------------------------------------------------------
 

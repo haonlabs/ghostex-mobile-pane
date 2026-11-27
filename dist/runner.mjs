@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { androidSdk, listDevices, run } from "./android.mjs";
 import { acquire, release as freeLock, projectOf } from "./device-lock.mjs";
+import { shutdownIfOn } from "./idle-shutdown.mjs";
 import { detectProject, findOnPath, listVariants, rememberProject, toolchain } from "./project.mjs";
 
 const MAX_LINES = 5000;
@@ -98,7 +99,8 @@ function finish(job, phase, { error = null, message } = {}) {
   if (TERMINAL.has(job.phase)) return;
   if (job.lock) {
     clearInterval(job.lock.beat);
-    freeLock(job.lock.dataDir, job.lock.owner, job.serial).catch(() => {});
+    const { dataDir, owner } = job.lock;
+    shutdownIfOn(dataDir).then((shutdown) => freeLock(dataDir, owner, job.serial, shutdown)).catch(() => {});
   }
   job.error = error;
   setPhase(job, phase, message);
@@ -586,6 +588,9 @@ async function installFlutterLocked(version) {
 export function startRun(body, dataDir) {
   return serialize(() => startRunLocked(body, dataDir));
 }
+
+/** The device a Run job is still using, if any (the idle sweep leaves it alone). */
+export const runningSerial = () => (current && !TERMINAL.has(current.phase) ? current.serial : null);
 
 export function stopRun() {
   return serialize(stopRunLocked);
