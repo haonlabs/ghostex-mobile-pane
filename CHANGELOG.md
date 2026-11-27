@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.9.1] - {PR_MERGE_DATE}
+
+- The `mobile-pane` skill tells agents to open the Mobile Pane view beside their chat (`ghostex extensions open mobile-pane-plugin --background`, Ghostex 12.3 or newer) before they start testing on a device.
+
 ## [0.9.0] - {PR_MERGE_DATE}
 
 - Initial release.

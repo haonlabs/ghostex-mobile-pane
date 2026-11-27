@@ -31,6 +31,10 @@ It works even when the Mobile Pane view is closed, as long as a device or simula
 - `device` takes an id or part of a name, such as `"emulator-5554"` or `"iPhone 17"`. Leave it out when only one device is ready.
 - To start an emulator or simulator, or to connect an Android phone over Wi-Fi, ask the user to use **Devices** in the Mobile Pane view. A phone on Wi-Fi has an id such as `192.168.1.20:37123` or `adb-<serial>-<id>._adb-tls-connect._tcp`.
 
+## Show the phone to the user
+
+Before your first action on a device, and whenever the user should see the phone, run `ghostex extensions open mobile-pane-plugin --background`. It adds the Mobile Pane tab beside your chat without taking the user's focus. It needs Ghostex 12.3 or newer, and the user may get an Open toast. If it fails (older Ghostex, toast declined), carry on: the agent CLI works with the view closed.
+
 ## Typical loop
 
 1. `ui` finds the element you want, and gives you its center.
