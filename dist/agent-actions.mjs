@@ -1,6 +1,7 @@
 // Actions for coding agents: look at and drive a device without the viewer open.
 // Coordinates are normalized 0..1 on both platforms; `ui` returns element centers in the same units,
 // so an agent can pass them straight to `tap`.
+import { execFile } from "node:child_process";
 import { mkdir, access } from "node:fs/promises";
 import { join } from "node:path";
 import { androidSdk, listDevices, run, displayRotation } from "./android.mjs";
@@ -31,6 +32,13 @@ export async function devices(_args, dataDir) {
 /** Actions that change the device take the lock first; another project's lock makes this wait (`wait` seconds, default 600). */
 async function hold(t, args, dataDir) {
   await acquire(dataDir, t.device, await projectOf(), { wait: args.wait });
+}
+
+/** Opens the Mobile Pane view beside the agent's chat. Fire-and-forget: older Ghostex, no `ghostex` on PATH, a declined toast or no Ghostex session all just do nothing. */
+export function openPane(onDone = () => {}) {
+  try {
+    execFile("ghostex", ["extensions", "open", "mobile-pane-plugin", "--background"], { timeout: 5000, stdio: "ignore" }, onDone).on("error", () => {}).unref();
+  } catch {}
 }
 
 export async function release({ device }, dataDir) {
@@ -176,6 +184,7 @@ export async function install(args, dataDir) {
   if (typeof path !== "string" || !path.startsWith("/")) throw new Error("path must be an absolute path");
   await access(path);
   await hold(t, args, dataDir);
+  openPane();
   if (t.platform === "ios") {
     if (!/\.app\/?$/.test(path)) throw new Error("iOS Simulator installs a built .app folder");
     const r = await run("xcrun", ["simctl", "install", t.device, path], 300000);
@@ -192,6 +201,7 @@ export async function launch(args, dataDir) {
   const t = await target(device);
   if (typeof app !== "string" || !/^[A-Za-z0-9._-]+$/.test(app)) throw new Error("app must be a package name or bundle id");
   await hold(t, args, dataDir);
+  openPane();
   if (t.platform === "ios") {
     const r = await run("xcrun", ["simctl", "launch", t.device, app], 60000);
     if (!r.ok) throw new Error(r.stderr || "simctl launch failed");

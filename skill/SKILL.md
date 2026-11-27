@@ -40,7 +40,7 @@ It works even when the Mobile Pane view is closed, as long as a device or simula
 
 ## Show the phone to the user
 
-Before your first action on a device, and whenever the user should see the phone, run `ghostex extensions open mobile-pane-plugin --background`. It adds the Mobile Pane tab beside your chat without taking the user's focus. It needs Ghostex 12.3 or newer, and the user may get an Open toast. If it fails (older Ghostex, toast declined), carry on: the agent CLI works with the view closed.
+`install` and `launch` open the Mobile Pane view beside your chat by themselves, so run apps through them rather than `adb install` or `flutter run` directly: the pane opens and the device lock applies. To show the phone without installing, run `ghostex extensions open mobile-pane-plugin --background` (Ghostex 12.3 or newer).
 
 ## Typical loop
 

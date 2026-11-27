@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.9.4] - {PR_MERGE_DATE}
+
+- Agent `install` and `launch` open the Mobile Pane view beside the agent's chat by themselves (Ghostex 12.3 or newer), so the user sees the phone without the skill having to ask. The `mobile-pane` skill now says so, and tells agents to run apps through these actions instead of `adb install` or `flutter run`.
+
 ## [0.9.3] - {PR_MERGE_DATE}
 
 - Emulators and Simulators shut down by themselves when a project is done with them: after the agent's `release`, when a Run ends, or when the device's lock goes stale after 3 minutes without an action. A device another project is waiting for stays on and goes to that project. Real phones (USB or Wi-Fi) are never shut down.
